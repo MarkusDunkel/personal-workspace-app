@@ -1,13 +1,21 @@
-interface StatusBarProps {
+export interface TableStatus {
+  label: string;
   saveStatus: string;
-  lineCount: number;
+  rowCount: number;
 }
 
-export function StatusBar({ saveStatus, lineCount }: StatusBarProps) {
+interface StatusBarProps {
+  tables: TableStatus[];
+}
+
+export function StatusBar({ tables }: StatusBarProps) {
   return (
     <footer className="statusbar">
-      <span id="save-status">{saveStatus}</span>
-      <span id="line-count">{lineCount} Zeilen</span>
+      {tables.map((t) => (
+        <span key={t.label} className="statusbar-table">
+          {t.label}: {t.saveStatus} · {t.rowCount} Zeilen
+        </span>
+      ))}
     </footer>
   );
 }

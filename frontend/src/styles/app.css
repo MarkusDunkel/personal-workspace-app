@@ -4,6 +4,8 @@
     --muted: #7a7a72;
     --warn: #c98a00;
     --error: #c0392b;
+    --accent: #3a6ea5;
+    --border: #d8d6cf;
     --font-mono: "Cascadia Code", "Consolas", monospace;
 }
 
@@ -14,6 +16,8 @@
         --muted: #9a9a92;
         --warn: #d9a441;
         --error: #e07a68;
+        --accent: #6fa3d8;
+        --border: #3a3a34;
     }
 }
 
@@ -42,65 +46,334 @@ body {
     flex-shrink: 0;
 }
 
-.editor-wrap {
+.tables-wrap {
     flex: 1;
-    padding: 0 1rem;
+    padding: 0 1rem 1rem;
     display: flex;
     flex-direction: column;
     overflow: hidden;
 }
 
-.editor-stack {
-    position: relative;
+.loading-hint {
+    color: var(--muted);
+}
+
+.split-pane {
+    display: flex;
     flex: 1;
-    overflow: hidden;
+    min-height: 0;
+    gap: 0;
 }
 
-.editor, .overlay {
-    position: absolute;
-    inset: 0;
-    margin: 0;
-    padding: 0.25rem 0;
-    font-family: var(--font-mono);
+.split-pane-left,
+.split-pane-right {
+    min-width: 0;
+    overflow: auto;
+}
+
+.split-pane-left {
+    flex: 1 1 50%;
+}
+
+.split-pane-right {
+    flex: 1;
+}
+
+.splitter {
+    flex: 0 0 6px;
+    cursor: col-resize;
+    background: var(--border);
+    touch-action: none;
+}
+
+.splitter:hover,
+.splitter:active {
+    background: var(--accent);
+}
+
+.table-section {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 0 0.5rem;
+}
+
+.table-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 0.5rem 0;
+}
+
+.table-section-header h2 {
     font-size: 1rem;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+    margin: 0;
 }
 
-.editor {
+.table-section-count {
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+.data-grid {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+}
+
+.data-grid th {
+    text-align: left;
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-weight: normal;
+    border-bottom: 1px solid var(--border);
+    padding: 0.35rem 0.5rem;
+}
+
+.data-grid td.cell {
+    border: 1px solid var(--border);
+    padding: 0;
+    height: 2rem;
+    outline: none;
+    position: relative;
+}
+
+.data-grid td.cell.focused {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.data-grid td.cell.editing {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.data-grid-actions-col,
+.data-grid-grip-col {
+    width: 2rem;
+    border: none;
+}
+
+.row-grip {
+    cursor: grab;
+    color: var(--muted);
+    display: inline-block;
+    padding: 0.25rem;
+    user-select: none;
+}
+
+.row-grip:active {
+    cursor: grabbing;
+}
+
+tr.drag-over {
+    box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.row-delete-button {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0.25rem;
+}
+
+.row-delete-button:hover {
+    color: var(--error);
+}
+
+.data-grid-empty {
+    color: var(--muted);
+    padding: 0.75rem 0.5rem;
+    cursor: pointer;
+    outline: none;
+}
+
+.data-grid-empty:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.cell-display {
+    display: block;
     width: 100%;
     height: 100%;
-    resize: none;
-    background: transparent;
+    padding: 0.35rem 0.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cell-input {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    padding: 0.35rem 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    background: var(--bg);
     color: var(--fg);
     border: none;
     outline: none;
-    caret-color: var(--fg);
-    z-index: 2;
+}
+
+.statusbar-table {
+    margin-right: 1rem;
+}
+
+.autocomplete-cell {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.autocomplete-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    min-width: 100%;
+    z-index: 10;
+    margin: 0;
+    padding: 0.25rem 0;
+    list-style: none;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    max-height: 10rem;
     overflow-y: auto;
 }
 
-.overlay {
-    z-index: 1;
-    pointer-events: none;
-    overflow: hidden;
-    color: transparent;
+.autocomplete-suggestions li {
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.overlay .line {
-    display: block;
-    border-left: 3px solid transparent;
-    padding-left: 4px;
-    margin-left: -7px;
+.autocomplete-suggestions li.highlighted,
+.autocomplete-suggestions li:hover {
+    background: var(--accent);
+    color: var(--bg);
 }
 
-.overlay .line.warn { border-left-color: var(--warn); }
-.overlay .line.error { border-left-color: var(--error); }
+.date-picker-cell {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
 
-.line-hint {
-    min-height: 1.4rem;
+.date-picker-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    height: 100%;
+    padding-right: 0.5rem;
+}
+
+.date-picker-input-row .cell-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.date-picker-preview {
     font-size: 0.8rem;
     color: var(--muted);
-    padding: 0.25rem 0;
+    white-space: nowrap;
+}
+
+.date-picker-popup-anchor {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 10;
+    outline: none;
+}
+
+.date-picker-popup {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    padding: 0.5rem;
+    width: 15.5rem;
+}
+
+.date-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.35rem;
+}
+
+.date-picker-month-label {
+    font-size: 0.9rem;
+}
+
+.date-picker-nav {
+    background: transparent;
+    border: none;
+    color: var(--fg);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0.1rem 0.4rem;
+}
+
+.date-picker-nav:hover {
+    color: var(--accent);
+}
+
+.date-picker-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-align: center;
+    margin-bottom: 0.15rem;
+}
+
+.date-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+}
+
+.date-picker-day {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--fg);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    padding: 0.3rem 0;
+    text-align: center;
+}
+
+.date-picker-day.muted {
+    color: var(--muted);
+}
+
+.date-picker-day.today {
+    border-color: var(--accent);
+}
+
+.date-picker-day.selected {
+    background: var(--accent);
+    color: var(--bg);
+}
+
+.date-picker-day.cursor {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.date-picker-day:hover {
+    background: var(--border);
+}
+
+.date-picker-footer {
+    margin-top: 0.4rem;
+    font-size: 0.65rem;
+    color: var(--muted);
+    text-align: center;
 }

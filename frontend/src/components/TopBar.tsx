@@ -1,14 +1,8 @@
-interface TopBarProps {
-  date: string;
-}
-
-export function TopBar({ date }: TopBarProps) {
+export function TopBar() {
   return (
     <header className="topbar">
-      <span className="date" id="current-date">
-        {date}
-      </span>
-      <span className="hint">Strg+. Hilfe · Strg+S Speichern · Strg+Shift+Enter Ingest</span>
+      <span className="title">Aufgaben &amp; Info</span>
+      <span className="hint">Pfeile/Tab navigieren · Eingabe neue Zeile · Entf leert Zelle · Esc abbrechen</span>
     </header>
   );
 }
