@@ -1,0 +1,21 @@
+target/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+
+# lokale Konfiguration mit echtem AIVAULT_ROOT-Pfad
+application-local.yml
+
+# Frontend (Vite/React/TS) - Build-Tooling und generierter Output
+frontend/node_modules/
+frontend/node/
+frontend/dist/
+
+# Frontend-Build-Output landet hier (siehe frontend/vite.config.ts)
+src/main/resources/static/

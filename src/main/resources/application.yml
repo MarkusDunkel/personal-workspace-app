@@ -1,0 +1,22 @@
+server:
+  address: 127.0.0.1
+  port: 8080
+
+spring:
+  application:
+    name: ai-app
+  # SQLite-Index (Konzept Kapitel 20/21, README-Ausschau Schritt 7) ist
+  # noch nicht implementiert - Auto-Configuration hier deaktivieren, sonst
+  # versucht Spring Boot beim Start eine JDBC-Connection aufzubauen, bevor
+  # es dafuer ueberhaupt einen Anwendungsfall gibt. Sobald der Index kommt,
+  # diese beiden Zeilen entfernen und den datasource-Block wieder aktivieren.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.jdbc.JdbcRepositoriesAutoConfiguration
+
+# Pflichtwert, kein Default - siehe AivaultProperties / FsGuard.
+# Beispiel (Windows, Git-Bash-Schreibweise wie im ai-vault-Repo ueblich):
+# aivault.root: C:/Users/<user>/OneDrive - Anlagenbau Austria GmbH/ai-vault
+aivault:
+  root: 'C:\Users\markus.dunkel\OneDrive - Anlagenbau Austria GmbH\ai-vault'
