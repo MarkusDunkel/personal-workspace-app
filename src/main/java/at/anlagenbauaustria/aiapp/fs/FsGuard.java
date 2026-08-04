@@ -27,7 +27,7 @@ public class FsGuard {
     }
 
     /**
-     * Loest einen repo-relativen Pfad (z.B. "0_sources/notes/2026-07-24.md")
+     * Loest einen repo-relativen Pfad (z.B. "0_sources/notes/aufgabe.json")
      * gegen die konfigurierte AIVAULT_ROOT auf und lehnt jeden Versuch ab,
      * die Root zu verlassen.
      */
@@ -58,7 +58,7 @@ public class FsGuard {
     /**
      * Wie {@link #resolve(String)}, verlangt zusaetzlich, dass der aufgeloeste
      * Pfad unterhalb der angegebenen Schreibzone liegt (Whitelist, Kapitel 17 -
-     * z.B. der Editor darf nur nach "0_sources/notes" schreiben).
+     * z.B. duerfen die Notes-Tabellen nur nach "0_sources/notes" schreiben).
      */
     public Path resolveWithinZone(String relativePath, String allowedZoneRelativePath) {
         Path resolved = resolve(relativePath);

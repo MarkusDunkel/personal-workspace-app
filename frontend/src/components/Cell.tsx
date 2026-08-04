@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { ColumnDefinition } from '../api/tableTypes';
+import type { ColumnDefinition } from '../api/noteTypes';
 import { AutocompleteCell } from './AutocompleteCell';
 import { DatePickerCell } from './DatePickerCell';
 

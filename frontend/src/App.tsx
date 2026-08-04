@@ -2,13 +2,13 @@ import { useCallback, useState } from 'react';
 import { SplitPane } from './components/SplitPane';
 import { StatusBar } from './components/StatusBar';
 import type { TableStatus } from './components/StatusBar';
-import { TableSection } from './components/TableSection';
+import { NoteSection } from './components/NoteSection';
 import { TopBar } from './components/TopBar';
 import { useContacts } from './hooks/useContacts';
-import { useTableDefinitions } from './hooks/useTableDefinitions';
+import { useNoteTableDefinitions } from './hooks/useNoteTableDefinitions';
 
 export function App() {
-  const { definitions } = useTableDefinitions();
+  const { definitions } = useNoteTableDefinitions();
   const contacts = useContacts();
   const [statusById, setStatusById] = useState<Record<string, TableStatus>>({});
 
@@ -27,14 +27,14 @@ export function App() {
           <SplitPane
             storageKey="split-pane-width"
             left={
-              <TableSection
+              <NoteSection
                 definition={aufgabe}
                 contacts={contacts}
                 onStatusChange={(status) => handleStatusChange(aufgabe.id, status)}
               />
             }
             right={
-              <TableSection
+              <NoteSection
                 definition={info}
                 contacts={contacts}
                 onStatusChange={(status) => handleStatusChange(info.id, status)}
@@ -42,7 +42,7 @@ export function App() {
             }
           />
         ) : (
-          <p className="loading-hint">Lade Tabellen…</p>
+          <p className="loading-hint">Lade Notizen…</p>
         )}
       </main>
       <StatusBar tables={Object.values(statusById)} />

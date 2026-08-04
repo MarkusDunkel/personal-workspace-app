@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DragEvent, KeyboardEvent } from 'react';
-import type { TableDefinition, TableRow } from '../api/tableTypes';
+import type { TableDefinition, TableRow } from '../api/noteTypes';
 import { useGridNavigation } from '../hooks/useGridNavigation';
 import { Cell } from './Cell';
 

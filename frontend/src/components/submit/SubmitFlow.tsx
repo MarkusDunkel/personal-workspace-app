@@ -1,0 +1,42 @@
+import { useNoteSubmit } from '../../hooks/useNoteSubmit';
+import { ReviewCandidateModal } from './ReviewCandidateModal';
+import { SubmitProgressModal } from './SubmitProgressModal';
+import { SubmitResultModal } from './SubmitResultModal';
+
+export function SubmitFlow() {
+  const { phase, candidates, knownPersons, currentIndex, resultMessage, errorMessage, begin, decide, reset } =
+    useNoteSubmit();
+
+  if (phase === 'idle') {
+    return (
+      <button type="button" className="submit-button" onClick={begin}>
+        Absenden
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <button type="button" className="submit-button" disabled>
+        Absenden
+      </button>
+      {phase === 'scanning' && <SubmitProgressModal label="Suche nach Personen und E-Mails…" />}
+      {phase === 'reviewing' && candidates[currentIndex] && (
+        <ReviewCandidateModal
+          candidate={candidates[currentIndex]}
+          index={currentIndex}
+          total={candidates.length}
+          knownPersons={knownPersons}
+          onDecide={decide}
+        />
+      )}
+      {phase === 'applying' && <SubmitProgressModal label="Pseudonymisiere und übertrage…" />}
+      {phase === 'done' && (
+        <SubmitResultModal success targetPath={resultMessage} errorMessage={null} onClose={reset} />
+      )}
+      {phase === 'error' && (
+        <SubmitResultModal success={false} targetPath={null} errorMessage={errorMessage} onClose={reset} />
+      )}
+    </>
+  );
+}

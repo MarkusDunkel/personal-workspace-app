@@ -1,9 +1,11 @@
 # ai-app
 
 Lokal laufende Spring-Boot-Anwendung als Steuerzentrale fuer die
-[ai-vault](../ai-vault)-Pipelines. Erster Anwendungsfall: ein
-tastaturzentrierter Editor fuer strukturierte Notizen, der die neue
-Ingest-Pipeline `notes` in ai-vault befuellt.
+[ai-vault](../ai-vault)-Pipelines. Erster Anwendungsfall: eine
+tabellenartige Eingabemaske fuer strukturierte Notizen (Aufgabe/Info), die
+per "Absenden"-Button die Ingest-Pipeline `notes` in ai-vault anstoesst -
+inklusive der Pseudonymisierungs-Boundary, gesteuert ueber die
+Weboberflaeche statt per Hand in `review.csv`/`person_register.csv`.
 
 **Verhaeltnis zu ai-vault:** `ai-vault` ist die Grundlage dieses Projekts
 und bleibt es auch fuer alles, was noch folgt. Dort leben die eigentlichen
@@ -85,11 +87,10 @@ deckt davon nur das ab, was fuer den Notiz-Editor und die neue
 `notes`-Ingest-Pipeline noetig ist - die Architektur soll die vollstaendige
 Steuerung aller Pipelines aber nicht verhindern oder erschweren.
 
-Der erste konkrete Anwendungsfall: ein Editor fuer strukturierte Notizen,
-so schnell bedienbar, dass er den Gespraechsfluss in einem Meeting nicht
-unterbricht - vollstaendig mit der Tastatur, zeilenorientiert, mit einer
-kompakten Syntaxsprache fuer Aufgaben, Entscheidungen, Rueckfragen,
-Risiken, Termine, Verweise auf Personen/Projekte/Dateien usw.
+Der erste konkrete Anwendungsfall: zwei tabellenartige Eingabemasken
+("Aufgabe", "Info") fuer strukturierte Notizen, mit Autosave, Tastatur-
+navigation und einem expliziten "Absenden"-Button, der die Daten pseudony-
+misiert nach `ai-vault` uebertraegt.
 
 ### Architektur
 
@@ -104,9 +105,10 @@ Spring Boot (embedded Tomcat, nur 127.0.0.1)
                 als Index/Cache (nie die einzige Quelle)
       |  direkter Dateisystemzugriff + Aufruf bestehender Skripte
 ai-vault/ (separates Repo, per aivault.root referenziert)
-  0_sources/notes/ -> 1_processed/notes/ -> Boundary -> 2_ai-ready/notes/
-  Boundary-Skripte (run_pseudonymize.sh, run_reidentify.sh) werden
-  unveraendert aufgerufen, nie in Java neu implementiert.
+  0_sources/notes/ -> Boundary (scan/apply) -> 2_ai-ready/notes/
+  Boundary-Skripte (pipelines/notes/run_scan.sh, run_pseudonymize.sh,
+  das generische pipelines/pseudonymize-Modul) werden unveraendert per
+  ProcessBuilder aufgerufen, nie in Java neu implementiert.
 ```
 
 Leitentscheidungen, die die aktuelle Umsetzung praegen:
@@ -135,43 +137,35 @@ Leitentscheidungen, die die aktuelle Umsetzung praegen:
   `AtomicFileWriter` (atomare Schreibvorgaenge) - siehe
   [Sicherheitsmodell](#sicherheitsmodell).
 
-### Syntaxsprache (Kurzfassung)
+### Notes-Tabellen (Kurzfassung)
 
-Praefixbasiert, ein Kern-Trenner (`|`) zwischen Segmenten:
+Zwei fest definierte Tabellentypen (`NoteRegistry`): "Aufgabe"
+(Spalten `von`, `inhalt`, `bis`, `an`) und "Info" (Spalten `quelle`,
+`inhalt`). Jede Zeile ist eine strukturierte Notiz; Personen-Spalten
+(`ColumnType.PERSON`) bieten eine Autovervollstaendigung gegen
+`0_sources/contacts.yml`. Autosave (debounced 800 ms + 30s-Netz) haelt
+`0_sources/notes/{aufgabe,info}.json` in `ai-vault` synchron.
 
-```
-[Quelle:] [Typ-Praefix] Inhalt [| Praefix: Wert]...
-```
+### Absenden-Flow (Pseudonymisierung ueber die Weboberflaeche)
 
-Beispiel: `Huber: t: Angebot nachfassen | f: 2026-08-01` - Huber ist die
-Quelle, `t:` markiert eine Aufgabe, `f:` setzt die Frist. Weitere
-Typ-Praefixe: `tm:` (Aufgabe fuer mich), `td:` (delegierte Aufgabe),
-`d:` (Entscheidung), `r:` (Rueckfrage), `risk:` (Risiko), `blk:`
-(Blocker), `nx:` (Folgeaktion). Segmente wie `p:` (Prioritaet), `proj:`
-(Projekt), `@`/`->`/`>>` (Person/Empfaenger), `#` (Tag), `f-doc:`
-(Dateiverweis), `!` (vertraulich) lassen sich beliebig kombinieren. Ein
-einzelner Syntaxfehler blockiert nur die betroffene Zeile, nie den Rest
-der Datei.
-
-Referenzimplementierung: `NoteSyntaxParser` (Java, fuer die Live-
-Validierung im Editor) und `parse_notes.py` (Python, im echten Ingest-Lauf
-in `ai-vault`) - beide sind unabhaengige Implementierungen desselben
-Kontrakts und muessen bei Grammatikaenderungen synchron gepflegt werden.
-
-### Statusmodell einer Notiz
+Der "Absenden"-Button in der `TopBar` stoesst die Uebergabe an die
+Pseudonymisierungs-Boundary an, vollstaendig aus der Weboberflaeche
+gesteuert - der Nutzer bearbeitet `review.csv`/`person_register.csv`
+nie mehr von Hand:
 
 ```
-[parse] -> draft -> reviewed -> (Boundary: pseudonymize) -> in 2_ai-ready
-              |         |
-              |         +-> rejected (bewusst verworfen)
-              +-> invalid (Parser-Fehler, Originaltext bleibt erhalten)
+Absenden
+  -> POST /api/notes/submit           (pipelines/notes/run_scan.sh: scan)
+  -> Review-Dialog pro neuem Kandidaten (neu anlegen / Alias von / ignorieren)
+  -> POST /api/notes/submit/decisions (update-register + run_pseudonymize.sh)
+  -> Ergebnis: 2_ai-ready/notes/{aufgabe,info}.json
 ```
 
-Nur Notizen mit `status: reviewed` nehmen am naechsten
-`run_pseudonymize.sh`-Lauf teil (Filter `filter_reviewed.py` in
-`ai-vault`). `draft`, `rejected` und `invalid` erreichen `2_ai-ready/`
-nie - kein Datenverlust, aber auch keine ungeprueften Inhalte im
-Knowledge Hub.
+Die eigentliche Erkennung (spaCy-NER + E-Mail-Regex), die Registerpflege
+und die Ersetzung bleiben vollstaendig in `pipelines/pseudonymize`
+(Python) - `ai-app` orchestriert nur die Prozessaufrufe und zeigt die
+Kandidaten/das Ergebnis an. Reidentify ist bewusst kein Teil dieses
+Schritts (siehe `pipelines/notes/README.md` in `ai-vault`).
 
 ---
 
@@ -185,101 +179,75 @@ Umgesetzt (siehe `src/main/java/at/anlagenbauaustria/aiapp/`):
   Schutz), `fs.AtomicFileWriter` (atomare Schreibvorgaenge),
   `config.AivaultProperties` (Pflicht-Property `aivault.root`, kein
   Default).
-- **Syntaxsprache:** `notes.NoteSyntaxParser` (reine, seiteneffektfreie
-  Grammatik-Implementierung) und `notes.NoteValidator` (relative
-  Datumsausdruecke wie "Fr"/"morgen", zusaetzliche Plausibilitaets-
-  warnungen). 23 Unit-Tests in `NoteSyntaxParserTest`, ein Testfall pro
-  Beispiel der Konzept-Referenztabelle.
-- **REST-API:** `notes.NoteController` mit `GET/PUT /api/notes/{date}`
-  (Rohtext lesen/speichern) und `POST /api/notes/validate`
-  (zeilenweise Live-Validierung ohne Datei zu schreiben), dahinter
-  `notes.NoteFileService` (einzige Schreibzone: `0_sources/notes/`).
-- **Frontend:** `frontend/` (React + TypeScript, Vite-Build) - Editor
-  als `<textarea>` mit synchron mitlaufendem Overlay (Fehler/Warnungen
-  als linker Rand, kein contenteditable), debounced Auto-Save (800 ms)
-  plus periodisches Speichern als Netz (30 s), debounced
-  Live-Validierung (400 ms), Tastenkuerzel fuer Erledigt-Markierung
-  (`Strg+Enter`), Zeile duplizieren (`Strg+D`), Kurzhilfe (`Strg+.`).
-  Baut via `frontend-maven-plugin` automatisch in
-  `src/main/resources/static/`.
-- **Gegenstueck in `ai-vault`:** `pipelines/notes/` mit `run_ingest.sh`,
-  `processing/01_parse/parse_notes.py`, `processing/02_classify_dedupe/
-  classify_dedupe.py` (Duplikaterkennung: exakt -> automatisch
-  verworfen, aehnlich -> nur Hinweis), `filter_reviewed.py`,
-  `run_pseudonymize.sh`, `run_reidentify.sh`, `reidentify/reidentify.py`
-  (Passthrough-Stub). End-to-end mit Python gegen alle Syntaxbeispiele
-  getestet.
+- **Notes-Tabellen:** `notes.NoteRegistry` (hardcodierte Tabellentypen
+  Aufgabe/Info), `notes.NoteDataService` (einzige Schreibzone:
+  `0_sources/notes/`), REST-API `notes.NoteController`
+  (`GET /api/notes`, `GET/PUT /api/notes/{tableId}`).
+- **Absenden/Pseudonymisierung:** `pipeline.PipelineRunner` (fuehrt
+  ai-vault-Skripte per `ProcessBuilder` aus), `notes.NoteSubmitService` +
+  `notes.NoteSubmitController` (`POST /api/notes/submit`,
+  `POST /api/notes/submit/decisions`) orchestrieren
+  `pipelines/notes/run_scan.sh` -> Review-Entscheidungen des Nutzers ->
+  `update-register` -> `pipelines/notes/run_pseudonymize.sh`.
+- **Frontend:** `frontend/` (React + TypeScript, Vite-Build) - zwei
+  Tabellen-Grids (`DataGrid`, `NoteSection`) mit Zellnavigation,
+  Personen-Autovervollstaendigung, Datumspicker, debounced Auto-Save
+  (800 ms) plus periodisches Speichern als Netz (30 s). "Absenden"-Button
+  in der `TopBar` fuehrt durch eine Modal-Sequenz (Scan-Fortschritt,
+  Kandidaten-Review, Ergebnis). Baut via `frontend-maven-plugin`
+  automatisch in `src/main/resources/static/`.
+- **Gegenstueck in `ai-vault`:** `pipelines/notes/` mit `run_scan.sh`
+  (ruft `pipelines.pseudonymize scan`) und `run_pseudonymize.sh` (ruft
+  `pipelines.pseudonymize apply`), beide ohne `1_processed`-Zwischenschritt
+  (die JSON-Dateien sind bereits strukturiert). Kein `run_reidentify.sh`
+  in dieser Ausbaustufe.
 
 Noch nicht umgesetzt / bekannte Luecken:
 
-- Die Java-Testsuite (`NoteSyntaxParserTest`) laeuft jetzt (Java 21 ist
-  installiert), zeigt aber 2 von 23 Tests fehlschlagend
-  (`example07_blockerWithFollowupSegment`,
-  `example17_unknownPrefixBecomesFreetextWithWarning`) - vorbestehende
-  Abweichungen in `NoteSyntaxParser` gegenueber der Python-Referenz
-  (`parse_notes.py`), unabhaengig vom Frontend-Wechsel. **Noch zu
-  klaeren, bevor `mvn package` ohne `-DskipTests` wieder gruen laeuft.**
-- Keine Autovervollstaendigung fuer Personen/Projekte im Frontend
-  (Konzept sieht eine `contacts.yml` vor, getrennt vom
-  `person_register.csv` der Boundary - noch nicht angelegt).
 - Kein GitHub-Remote fuer dieses Repo eingerichtet (nur lokal
   initialisiert).
+- Kein `run_reidentify.sh` fuer Notes (siehe `ai-vault/pipelines/notes/README.md`).
+- Kein generisches Pipeline-Dashboard - der Absenden-Flow ist der einzige
+  aus der UI ausloesbare Pipeline-Lauf.
 
 ## Ausschau: was noch umgesetzt werden soll
 
-Reihenfolge in etwa wie im urspruenglichen Umsetzungsplan, angepasst an
-den erreichten Stand:
-
-1. **Java-Umgebung einrichten und Tests scharf schalten.** JDK 21 +
-   Maven lokal installieren, `mvn test` einmal echt gruen bekommen,
-   danach `mvn spring-boot:run` gegen einen echten `ai-vault`-Checkout
-   im Meeting ausprobieren.
-2. **Autovervollstaendigung** fuer Praefixe, bekannte Personen (aus
-   einer eigenen `contacts.yml`, bewusst getrennt vom
-   Pseudonymisierungs-Register) und Projekte im Editor-Frontend.
-3. **Pipeline-Domaenenmodell generisch verdrahten:**
+1. **Reidentify fuer Notes** (`pipelines/notes/run_reidentify.sh` +
+   `reidentify/reidentify.py`), falls spaeter benoetigt.
+2. **Pipeline-Domaenenmodell generisch verdrahten:**
    `PipelineDefinition`/`StepDefinition`/`PipelineRun` als Java-Records,
-   `PipelineRegistry` (liest eine Konfiguration oder registrierte
-   Provider-Beans) und `PipelineRunner` (fuehrt Schritt-Kommandos ueber
-   `ProcessBuilder` aus, faengt stdout/stderr/Exit-Code ein, serielle
-   Run-Queue). `notes` wird die erste registrierte Pipeline, aber das
-   Modell bleibt von Anfang an eine Liste, kein Sonderfall - jede
-   bestehende `ai-vault`-Pipeline (`sharepoint`, `azure_boards`,
-   `transcripts`, die Result-Pipelines) laesst sich darauf ohne
-   Architekturaenderung aufsetzen.
-4. **Pipeline-Dashboard** (statisches Frontend, analog zum Editor):
-   Karten pro Pipeline/Schritt, Start-Button, Live-Log per
-   Server-Sent-Events, letzter Lauf/Status.
-5. **Review-UI** gegen `1_processed/notes/02_classify_dedupe/`: Liste der
-   `draft`/`invalid`-Notizen, Freigeben/Verwerfen/Korrigieren, schreibt
-   den Statuswechsel inkl. `history:`-Eintrag in die jeweilige Datei
-   zurueck.
-6. **Ingest-Lauf aus der App ausloesen** (Button ruft
-   `pipelines/notes/run_ingest.sh` auf), inklusive Anzeige der
-   Ergebnisse (wie viele Einheiten, wie viele ungueltig/Duplikate).
-7. **SQLite-Index** (`index.NoteIndexRepository`,
+   `PipelineRegistry` und ein ausgebauter `PipelineRunner` mit serieller
+   Run-Queue. `notes` ist aktuell noch ein Sonderfall (direkter Aufruf,
+   kein generisches Modell) - jede weitere `ai-vault`-Pipeline
+   (`sharepoint`, `azure_boards`, `transcripts`, die Result-Pipelines)
+   soll darauf ohne Architekturaenderung aufsetzen koennen.
+3. **Pipeline-Dashboard** (statisches Frontend): Karten pro
+   Pipeline/Schritt, Start-Button, Live-Log per Server-Sent-Events,
+   letzter Lauf/Status.
+4. **SQLite-Index** (`index.NoteIndexRepository`,
    `index.IndexRebuildService`): Statusuebersicht, Volltextsuche,
-   Run-Historie - als Cache, jederzeit aus den Markdown-Dateien in
+   Run-Historie - als Cache, jederzeit aus den JSON-Dateien in
    `ai-vault` neu aufbaubar, nie die einzige Quelle.
-8. **End-to-End-Testlauf mit echtem Register:** Editor -> Ingest ->
-   Review -> `run_pseudonymize.sh` (mit echtem
-   `person_register.csv`) -> Kontrolle des Ergebnisses in
-   `2_ai-ready/notes/`.
-9. **Absicherung/Wiederherstellung nachziehen:** Aenderungsjournal
-   (`logs/notes-journal.jsonl`) fuer Statuswechsel, Recovery nach Absturz
-   waehrend eines Schreibvorgangs (unfertige `.tmp`-Dateien beim
-   App-Start erkennen und aufraeumen).
-10. **Perspektivisch, nicht terminiert:** Zeitsteuerung/Ordnerueberwachung
-    fuer automatische Ingest-Laeufe, Dry-Run fuer Massenoperationen,
-    Undo-UI auf Basis des Journals - das Domaenenmodell aus Schritt 3
-    sieht diese Erweiterungen vor (z.B. `TriggerDefinition`-Typen), sie
-    sind aber bewusst nicht Teil der ersten Version.
+5. **Absicherung/Wiederherstellung nachziehen:** Aenderungsjournal fuer
+   Absenden-Laeufe, Recovery nach Absturz waehrend eines Schreibvorgangs
+   (unfertige `.tmp`-Dateien beim App-Start erkennen und aufraeumen).
+6. **Perspektivisch, nicht terminiert:** Zeitsteuerung/Ordnerueberwachung
+   fuer automatische Ingest-Laeufe, Dry-Run fuer Massenoperationen,
+   Undo-UI - das Domaenenmodell aus Schritt 2 sieht diese Erweiterungen
+   vor, sie sind aber bewusst nicht Teil der ersten Version.
 
 ## Sicherheitsmodell
 
 Jeder Dateizugriff laeuft ausschliesslich ueber `FsGuard`
 (`at.anlagenbauaustria.aiapp.fs.FsGuard`): Pfad-Traversal ("..",
 Symlinks aus der Root heraus) wird hart abgelehnt, Schreibzonen sind pro
-Feature eingeschraenkt (der Notiz-Editor darf z.B. nur nach
+Feature eingeschraenkt (die Notes-Tabellen duerfen z.B. nur nach
 `0_sources/notes/` schreiben). Schreibvorgaenge laufen ueber
 `AtomicFileWriter` (Schreiben nach `.tmp`, dann atomarer Move).
+
+Der Absenden-Flow greift zusaetzlich auf `person_register.csv`
+(`AIVAULT_PERSON_REGISTER`) lesend zu und ruft ausschliesslich
+bestehende, unveraenderte ai-vault-Skripte auf - `ai-app` schreibt nie
+direkt in `person_register.csv` oder `2_ai-ready/`, das erledigen die
+Python-Skripte in `ai-vault` (siehe `ai-vault/CLAUDE.md`, "Boundary is
+the user's").
