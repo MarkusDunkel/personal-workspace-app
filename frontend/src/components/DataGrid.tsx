@@ -11,6 +11,7 @@ interface DataGridProps {
   onAddRow: () => void;
   onDeleteRow: (rowId: string) => void;
   onReorderRow: (rowId: string, newIndex: number) => void;
+  onFocusedRowChange?: (row: TableRow | null) => void;
   contacts: string[];
 }
 
@@ -27,6 +28,7 @@ export function DataGrid({
   onAddRow,
   onDeleteRow,
   onReorderRow,
+  onFocusedRowChange,
   contacts,
 }: DataGridProps) {
   const cellRefs = useRef<Map<string, HTMLDivElement | HTMLButtonElement>>(new Map());
@@ -58,6 +60,11 @@ export function DataGrid({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nav.focused, nav.editing]);
+
+  useEffect(() => {
+    onFocusedRowChange?.(rows[nav.focused.row] ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav.focused.row, rows]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLElement>, row: number, col: number, columns: ColumnDefinition[]) => {
     if (nav.editing) {
@@ -139,7 +146,7 @@ export function DataGrid({
                       else cellRefs.current.delete(`${rowIndex}:${colIndex}`);
                     }}
                     tabIndex={isFocused ? 0 : -1}
-                    className={`data-grid-cell${isFocused ? ' focused' : ''}${isEditing ? ' editing' : ''}`}
+                    className={`data-grid-cell data-grid-cell--${col.id}${isFocused ? ' focused' : ''}${isEditing ? ' editing' : ''}`}
                     onClick={() => {
                       nav.setFocused({ row: rowIndex, col: colIndex });
                       focusCell(rowIndex, colIndex);

@@ -40,7 +40,11 @@ export function useNoteTableData(tableId: string, reloadToken: number = 0) {
   const setCell = useCallback(
     (rowId: string, columnId: string, value: string | null) => {
       mutateRows(
-        rowsRef.current.map((r) => (r.id === rowId ? { ...r, cells: { ...r.cells, [columnId]: value } } : r)),
+        rowsRef.current.map((r) =>
+          r.id === rowId
+            ? { ...r, cells: { ...r.cells, [columnId]: value, lastChanged: new Date().toISOString() } }
+            : r,
+        ),
       );
     },
     [mutateRows],
@@ -48,9 +52,10 @@ export function useNoteTableData(tableId: string, reloadToken: number = 0) {
 
   const addRow = useCallback(
     (initialCells?: Record<string, string | null>) => {
+      const now = new Date().toISOString();
       const newRow: TableRow = {
         id: crypto.randomUUID(),
-        cells: initialCells ?? {},
+        cells: { ...initialCells, created: now, lastChanged: now },
         order: rowsRef.current.length,
       };
       mutateRows([...rowsRef.current, newRow]);

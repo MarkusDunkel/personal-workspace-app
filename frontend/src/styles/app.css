@@ -40,10 +40,56 @@ body {
 .topbar, .statusbar {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     padding: 0.5rem 1rem;
     font-size: 0.8rem;
     color: var(--muted);
     flex-shrink: 0;
+}
+
+.topbar-fields {
+    display: flex;
+    gap: 1rem;
+}
+
+.labeled-autocomplete {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.labeled-autocomplete-label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.labeled-autocomplete .autocomplete-cell {
+    width: 14.75rem;
+    height: 1.6rem;
+}
+
+.labeled-autocomplete .cell-input {
+    border: 1px solid var(--border);
+    background: var(--bg);
+}
+
+.labeled-autocomplete .cell-input:disabled {
+    opacity: 0.5;
+}
+
+.focused-row-fields {
+    display: flex;
+    gap: 1rem;
+    padding: 0.35rem 0;
+}
+
+.statusbar-tables {
+    display: flex;
+}
+
+.statusbar-spacer {
+    width: 1px;
 }
 
 .tables-wrap {
@@ -84,6 +130,25 @@ body {
     height: 2rem;
     outline: none;
     position: relative;
+}
+
+/* Fixierte Breiten pro Spalten-Identitaet statt Gleichverteilung - "Inhalt"
+   bleibt ohne eigene Regel und behaelt damit flex:1 1 0 aus .data-grid-cell,
+   nimmt also den gesamten verbleibenden Platz. Da die Breite nicht mehr von
+   der Zellenzahl der jeweiligen Zeile abhaengt, richten sich gleichnamige
+   Spalten (z.B. "Bis") ueber Aufgabe- und Info-Zeilen hinweg visuell aus. */
+.data-grid-cell--typ {
+    flex: 0 0 7rem;
+}
+
+.data-grid-cell--von,
+.data-grid-cell--an,
+.data-grid-cell--quelle {
+    flex: 0 0 10rem;
+}
+
+.data-grid-cell--bis {
+    flex: 0 0 8rem;
 }
 
 .data-grid-cell.focused {

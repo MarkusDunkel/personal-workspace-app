@@ -1,6 +1,11 @@
 target/
 *.class
 
+# Lokale Laufzeitdaten (Contacts-/Projekte-/Meetings-Vorschlagslisten,
+# siehe LocalDataDir) - aendern sich staendig durch Bedienung der App,
+# gehoeren nicht in die Versionskontrolle.
+data/
+
 # IDE
 .idea/
 *.iml

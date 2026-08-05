@@ -1,14 +1,6 @@
-import { useEffect, useState } from 'react';
-import { getContacts } from '../api/contactsApi';
+import { getContacts } from '../api/listsApi';
+import { useSuggestionList } from './useSuggestionList';
 
-export function useContacts(): string[] {
-  const [contacts, setContacts] = useState<string[]>([]);
-
-  useEffect(() => {
-    getContacts()
-      .then(setContacts)
-      .catch(() => setContacts([]));
-  }, []);
-
-  return contacts;
+export function useContacts(reloadToken: number = 0): string[] {
+  return useSuggestionList(getContacts, reloadToken);
 }
