@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface TextEditorModalProps {
   value: string | null;
@@ -24,13 +25,36 @@ export function TextEditorModal({ value, onCommit, onCancel, onMoveUp, onMoveDow
 
   const commit = () => onCommit(draft === '' ? null : draft);
 
-  return (
-    <div className="submit-modal-overlay">
+  // Per Portal direkt an document.body gerendert, ABER: React-Events
+  // (onMouseDown/onClick/...) bubbeln durch den REACT-Komponentenbaum, nicht
+  // durch die tatsaechliche DOM-Position - ein Portal aendert daran nichts.
+  // Diese Komponente haengt im Baum weiterhin unter DataGrid.tsx' <div
+  // role="cell" onClick={...}>, dessen Handler bei jedem Klick/Drag im
+  // Textarea (z.B. beim Setzen des Selektionsankers oder Ziehen einer
+  // Textauswahl) nav.setFocused(...) aufrief - das riss den State-Update-
+  // Zyklus des Grids mit rein und konkurrierte mit der laufenden nativen
+  // Text-Selektion um den Fokus (Symptom: Fokus geht schon beim reinen
+  // Markieren von Text verloren, Endlos-Re-Render waehrend der Selektion).
+  // stopPropagation auf mousedown/click verhindert das Durchbubbeln zur
+  // Grid-Zelle, ohne die native Text-Selektion oder Fokusvergabe im
+  // Textarea selbst zu beeintraechtigen.
+  return createPortal(
+    <div
+      className="submit-modal-overlay"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          e.preventDefault();
+          textareaRef.current?.focus();
+        }
+      }}
+    >
       <div className="text-editor-modal" role="dialog" aria-modal="true">
         <textarea
           ref={textareaRef}
           className="text-editor-modal-textarea"
           value={draft}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -89,6 +113,7 @@ export function TextEditorModal({ value, onCommit, onCancel, onMoveUp, onMoveDow
           }}
         />
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
