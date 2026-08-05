@@ -178,7 +178,7 @@ export function DatePickerPopup({
           );
         })}
       </div>
-      <div className="date-picker-footer">Enter bestätigen · t Heute · PgUp/PgDn Monat · Esc schließen</div>
+      <div className="date-picker-footer">Enter bestätigen · t Heute · Nt/Nw/Nj +Tage/Wochen/Jahre · PgUp/PgDn Monat · Esc schließen</div>
     </div>
   );
 }

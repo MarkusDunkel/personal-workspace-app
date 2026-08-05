@@ -46,11 +46,18 @@ export function useNoteTableData(tableId: string) {
     [mutateRows],
   );
 
-  const addRow = useCallback(() => {
-    const newRow: TableRow = { id: crypto.randomUUID(), cells: {}, order: rowsRef.current.length };
-    mutateRows([...rowsRef.current, newRow]);
-    return newRow.id;
-  }, [mutateRows]);
+  const addRow = useCallback(
+    (initialCells?: Record<string, string | null>) => {
+      const newRow: TableRow = {
+        id: crypto.randomUUID(),
+        cells: initialCells ?? {},
+        order: rowsRef.current.length,
+      };
+      mutateRows([...rowsRef.current, newRow]);
+      return newRow.id;
+    },
+    [mutateRows],
+  );
 
   const deleteRow = useCallback(
     (rowId: string) => {

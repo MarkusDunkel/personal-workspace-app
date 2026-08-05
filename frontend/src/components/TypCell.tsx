@@ -1,11 +1,11 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { CellProps } from './Cell';
 
-interface AutocompleteCellProps extends CellProps {
-  contacts: string[];
+interface TypCellProps extends CellProps {
+  typValues: string[];
 }
 
-export function AutocompleteCell({
+export function TypCell({
   column,
   value,
   focused,
@@ -15,8 +15,8 @@ export function AutocompleteCell({
   onCancelEdit,
   onMoveDown,
   onMoveTab,
-  contacts,
-}: AutocompleteCellProps) {
+  typValues,
+}: TypCellProps) {
   // Wird bei jedem neuen Editiervorgang frisch gemountet (siehe DataGrid.tsx
   // key={editing ? `editing-${editSession}` : 'idle'}), daher initialisiert
   // sich draft garantiert korrekt - kein Effect-Timing-Risiko mehr.
@@ -29,13 +29,9 @@ export function AutocompleteCell({
       const el = inputRef.current;
       el.focus();
       if (initialChar) {
-        // Zeichen-Direkteintritt: Cursor ans Ende, nicht markieren, sonst
-        // wuerde das naechste Zeichen das gerade getippte wieder loeschen.
         const pos = el.value.length;
         el.setSelectionRange(pos, pos);
       } else {
-        // Doppelklick/F2/Pfeiltasten-Ankunft: bestehenden Wert markieren,
-        // damit sofortiges Lostippen ihn ersetzt statt anzuhaengen.
         el.setSelectionRange(0, el.value.length);
       }
     }
@@ -52,12 +48,23 @@ export function AutocompleteCell({
 
   const matches =
     draft.trim() === ''
-      ? []
-      : contacts.filter((c) => c.toLowerCase().includes(draft.trim().toLowerCase())).slice(0, 8);
+      ? typValues
+      : typValues.filter((t) => t.toLowerCase().includes(draft.trim().toLowerCase()));
   const listOpen = matches.length > 0;
 
+  const matchExact = (text: string) => typValues.find((t) => t.toLowerCase() === text.trim().toLowerCase());
+
   const commit = (text: string) => {
-    onCommit(text === '' ? null : text);
+    if (text.trim() === '') {
+      onCommit(null);
+      return;
+    }
+    const exact = matchExact(text);
+    if (exact) {
+      onCommit(exact);
+    } else {
+      onCancelEdit();
+    }
   };
 
   return (
@@ -101,7 +108,7 @@ export function AutocompleteCell({
           if (e.key === 'Tab') {
             e.preventDefault();
             e.stopPropagation();
-            commit(draft);
+            commit(listOpen ? matches[highlightIndex] : draft);
             onMoveTab(e.shiftKey ? -1 : 1);
           }
         }}

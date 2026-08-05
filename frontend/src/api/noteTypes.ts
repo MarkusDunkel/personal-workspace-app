@@ -1,5 +1,5 @@
 // Mirrors at.anlagenbauaustria.aiapp.notes.model.ColumnType
-export type ColumnType = 'TEXT' | 'DATE' | 'PERSON';
+export type ColumnType = 'TEXT' | 'DATE' | 'PERSON' | 'TYP';
 
 // Mirrors at.anlagenbauaustria.aiapp.notes.model.ColumnDefinition
 export interface ColumnDefinition {
@@ -12,7 +12,9 @@ export interface ColumnDefinition {
 export interface TableDefinition {
   id: string;
   label: string;
-  columns: ColumnDefinition[];
+  typColumn: ColumnDefinition;
+  typValues: string[];
+  columnsByTyp: Record<string, ColumnDefinition[]>;
 }
 
 // Mirrors at.anlagenbauaustria.aiapp.notes.model.NoteTableRow

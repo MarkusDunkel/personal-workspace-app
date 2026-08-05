@@ -15,38 +15,38 @@ function today(): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-export function DatePickerCell({ value, focused, editing, initialChar, onCommit, onCancelEdit }: CellProps) {
-  const [draft, setDraft] = useState('');
-  const [popupOpen, setPopupOpen] = useState(false);
-  const [gridFocused, setGridFocused] = useState(false);
-  const [cursorDate, setCursorDate] = useState<Date>(today());
-  const inputRef = useRef<HTMLInputElement>(null);
-  const popupRef = useRef<HTMLDivElement>(null);
+// Vorerst deaktiviert: das Text-Eingabefeld mit Autocomplete-Vorschlag
+// reicht aus, der Kalender-Popup bleibt fuer eine spaetere Reaktivierung
+// im Code, wird aber nicht mehr geoeffnet.
+const CALENDAR_POPUP_ENABLED = false;
 
+export function DatePickerCell({ column, value, focused, editing, initialChar, onCommit, onCancelEdit, onMoveDown, onMoveTab }: CellProps) {
   const committedDate = value ? fromIsoDate(value) : null;
 
-  useEffect(() => {
-    if (editing) {
-      const seed = initialChar ?? '';
-      setDraft(seed);
-      setGridFocused(false);
-      setCursorDate(committedDate ?? today());
-      setPopupOpen(true);
-    } else {
-      setPopupOpen(false);
-      setGridFocused(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing]);
+  // Wird bei jedem neuen Editiervorgang frisch gemountet (siehe DataGrid.tsx
+  // key={editing ? `editing-${editSession}` : 'idle'}), daher initialisieren
+  // sich alle States hier garantiert korrekt - kein Effect-Timing-Risiko mehr.
+  const [draft, setDraft] = useState(initialChar ?? '');
+  const [popupOpen, setPopupOpen] = useState(CALENDAR_POPUP_ENABLED);
+  const [gridFocused, setGridFocused] = useState(false);
+  const [cursorDate, setCursorDate] = useState<Date>(committedDate ?? today());
+  const inputRef = useRef<HTMLInputElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const hasCommittedRef = useRef(false);
 
   useLayoutEffect(() => {
     if (editing && !gridFocused && inputRef.current) {
       const el = inputRef.current;
       el.focus();
-      const pos = el.value.length;
-      el.setSelectionRange(pos, pos);
+      if (initialChar) {
+        const pos = el.value.length;
+        el.setSelectionRange(pos, pos);
+      } else {
+        el.setSelectionRange(0, el.value.length);
+      }
     }
-  }, [editing, gridFocused]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (gridFocused) {
@@ -57,12 +57,15 @@ export function DatePickerCell({ value, focused, editing, initialChar, onCommit,
   const preview = draft.trim() === '' ? null : parseRelativeOrLiteralDate(draft, today());
 
   const commitFromDraft = () => {
+    if (hasCommittedRef.current) return;
     const trimmed = draft.trim();
     if (trimmed === '') {
+      hasCommittedRef.current = true;
       onCommit(null);
       return;
     }
     const parsed = parseRelativeOrLiteralDate(trimmed, today());
+    hasCommittedRef.current = true;
     if (parsed.isoDate) {
       onCommit(parsed.isoDate);
     } else {
@@ -71,12 +74,18 @@ export function DatePickerCell({ value, focused, editing, initialChar, onCommit,
   };
 
   const confirmDate = (date: Date) => {
+    if (hasCommittedRef.current) return;
+    hasCommittedRef.current = true;
     onCommit(toIsoDate(date));
   };
 
   if (!editing) {
-    const display = value ? PREVIEW_FORMAT.format(fromIsoDate(value) ?? undefined) : '';
-    return <span className={`cell-display${focused ? ' cell-focused' : ''}`}>{display}</span>;
+    const display = value ? PREVIEW_FORMAT.format(fromIsoDate(value) ?? undefined) : null;
+    return (
+      <span className={`cell-display${focused ? ' cell-focused' : ''}${display ? '' : ' cell-placeholder'}`}>
+        {display ?? column.label}
+      </span>
+    );
   }
 
   return (
@@ -88,9 +97,10 @@ export function DatePickerCell({ value, focused, editing, initialChar, onCommit,
           value={draft}
           onChange={(e) => {
             setDraft(e.target.value);
-            setPopupOpen(true);
+            setPopupOpen(CALENDAR_POPUP_ENABLED);
           }}
           onBlur={(e) => {
+            if (hasCommittedRef.current) return;
             if (popupRef.current?.contains(e.relatedTarget as Node)) return;
             commitFromDraft();
           }}
@@ -101,17 +111,15 @@ export function DatePickerCell({ value, focused, editing, initialChar, onCommit,
               return;
             }
             if (e.key === 'Enter') {
-              if (preview?.isoDate) {
-                // let it bubble: DataGrid's <td> handler advances focus
-                // down after this commits.
-                confirmDate(preview.date as Date);
-                return;
-              }
-              // unparseable non-empty text: stay put, do not commit/close.
+              e.preventDefault();
               e.stopPropagation();
+              if (preview?.isoDate) {
+                confirmDate(preview.date as Date);
+                onMoveDown();
+              }
               return;
             }
-            if (e.key === 'ArrowDown') {
+            if (e.key === 'ArrowDown' && CALENDAR_POPUP_ENABLED) {
               e.preventDefault();
               e.stopPropagation();
               if (!popupOpen) setPopupOpen(true);
@@ -120,12 +128,27 @@ export function DatePickerCell({ value, focused, editing, initialChar, onCommit,
               return;
             }
             if (e.key === 'Tab') {
-              // let it bubble: DataGrid's <td> handler advances focus.
+              e.preventDefault();
+              e.stopPropagation();
               commitFromDraft();
+              onMoveTab(e.shiftKey ? -1 : 1);
             }
           }}
         />
-        {preview?.isoDate && <span className="date-picker-preview">→ {PREVIEW_FORMAT.format(preview.date as Date)}</span>}
+        {preview?.isoDate && (
+          <ul className="autocomplete-suggestions date-picker-suggestions">
+            <li
+              className="highlighted"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                confirmDate(preview.date as Date);
+                onMoveDown();
+              }}
+            >
+              {PREVIEW_FORMAT.format(preview.date as Date)}
+            </li>
+          </ul>
+        )}
       </div>
       {popupOpen && (
         <div
@@ -133,6 +156,7 @@ export function DatePickerCell({ value, focused, editing, initialChar, onCommit,
           ref={popupRef}
           tabIndex={-1}
           onBlur={(e) => {
+            if (hasCommittedRef.current) return;
             if (popupRef.current?.contains(e.relatedTarget as Node)) return;
             commitFromDraft();
           }}
@@ -142,7 +166,10 @@ export function DatePickerCell({ value, focused, editing, initialChar, onCommit,
             committedDate={committedDate}
             today={today()}
             onCursorMove={setCursorDate}
-            onConfirm={confirmDate}
+            onConfirm={(date) => {
+              confirmDate(date);
+              onMoveDown();
+            }}
             onRequestClose={onCancelEdit}
             onTypeChar={(char) => {
               setGridFocused(false);

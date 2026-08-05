@@ -7,8 +7,9 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * REST-API fuer die Notes-UI (Aufgabe/Info): strukturierte,
- * tages-uebergreifende Zeilenlisten in Tabellenform.
+ * REST-API fuer die Notes-UI: eine gemeinsame Tabelle, deren Zeilen per
+ * "typ"-Zelle (Aufgabe/Info) einen unterschiedlichen zusaetzlichen
+ * Spaltensatz haben (siehe NoteRegistry).
  */
 @RestController
 @RequestMapping("/api/notes")

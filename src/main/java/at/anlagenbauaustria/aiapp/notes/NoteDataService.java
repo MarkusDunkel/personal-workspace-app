@@ -33,7 +33,7 @@ public class NoteDataService {
     }
 
     public NoteTableData read(String tableId) {
-        Path file = resolveFile(tableId);
+        Path file = resolveFile();
         if (!Files.exists(file)) {
             return new NoteTableData(tableId, List.of());
         }
@@ -46,7 +46,7 @@ public class NoteDataService {
     }
 
     public void write(String tableId, NoteTableData data) {
-        Path file = resolveFile(tableId);
+        Path file = resolveFile();
         try {
             String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(data);
             atomicFileWriter.writeUtf8(file, json);
@@ -55,8 +55,7 @@ public class NoteDataService {
         }
     }
 
-    private Path resolveFile(String tableId) {
-        String relative = ZONE + "/" + tableId + ".json";
-        return fsGuard.resolveWithinZone(relative, ZONE);
+    private Path resolveFile() {
+        return fsGuard.resolveWithinZone(ZONE + "/notes.json", ZONE);
     }
 }

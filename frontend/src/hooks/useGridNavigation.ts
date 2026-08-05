@@ -14,10 +14,13 @@ export interface UseGridNavigation {
   focused: GridPosition;
   editing: boolean;
   initialChar: string | undefined;
+  editSession: number;
   setFocused: (pos: GridPosition) => void;
   startEditing: (initialChar?: string) => void;
   stopEditing: (commit: boolean) => void;
+  moveUp: () => void;
   moveDown: () => void;
+  moveHorizontal: (delta: 1 | -1) => void;
   moveTab: (delta: 1 | -1) => void;
   handleKeyDown: (e: KeyboardEvent) => void;
 }
@@ -26,16 +29,24 @@ const PRINTABLE_KEY = /^[^\s]$/u;
 
 export function useGridNavigation(
   rowCount: number,
-  colCount: number,
+  getColCountForRow: (row: number) => number,
   options: UseGridNavigationOptions,
 ): UseGridNavigation {
   const [focused, setFocused] = useState<GridPosition>({ row: 0, col: 0 });
   const [editing, setEditing] = useState(false);
   const [initialChar, setInitialChar] = useState<string | undefined>(undefined);
+  // Wird bei jedem startEditing hochgezaehlt und als React-key an die Zelle
+  // durchgereicht - erzwingt einen kompletten Remount statt einer Effect-
+  // basierten State-Synchronisierung, damit useState(initialChar ?? value)
+  // garantiert mit dem richtigen Wert initialisiert, ohne Race zwischen
+  // useLayoutEffect (liest den noch alten DOM-Wert) und useEffect (setzt
+  // draft erst danach).
+  const [editSession, setEditSession] = useState(0);
 
   const startEditing = useCallback((char?: string) => {
     setInitialChar(char);
     setEditing(true);
+    setEditSession((n) => n + 1);
   }, []);
 
   const stopEditing = useCallback((_commit: boolean) => {
@@ -51,32 +62,37 @@ export function useGridNavigation(
         onRequestAddRow();
         return { row: rowCount, col: 0 };
       }
-      return { row: pos.row + 1, col: pos.col };
+      const row = pos.row + 1;
+      return { row, col: Math.min(pos.col, getColCountForRow(row) - 1) };
     });
-  }, [rowCount, onRequestAddRow]);
+  }, [rowCount, onRequestAddRow, getColCountForRow]);
 
   const moveUp = useCallback(() => {
-    setFocused((pos) => (pos.row === 0 ? pos : { row: pos.row - 1, col: pos.col }));
-  }, []);
+    setFocused((pos) => {
+      if (pos.row === 0) return pos;
+      const row = pos.row - 1;
+      return { row, col: Math.min(pos.col, getColCountForRow(row) - 1) };
+    });
+  }, [getColCountForRow]);
 
   const moveHorizontal = useCallback(
     (delta: 1 | -1) => {
       setFocused((pos) => {
         let { row, col } = pos;
         col += delta;
-        if (col >= colCount) {
+        if (col >= getColCountForRow(row)) {
           if (row >= rowCount - 1) return pos;
           row += 1;
           col = 0;
         } else if (col < 0) {
           if (row <= 0) return pos;
           row -= 1;
-          col = colCount - 1;
+          col = getColCountForRow(row) - 1;
         }
         return { row, col };
       });
     },
-    [colCount, rowCount],
+    [getColCountForRow, rowCount],
   );
 
   const moveTab = useCallback(
@@ -84,7 +100,7 @@ export function useGridNavigation(
       setFocused((pos) => {
         let { row, col } = pos;
         col += delta;
-        if (col >= colCount) {
+        if (col >= getColCountForRow(row)) {
           if (row >= rowCount - 1) {
             onRequestAddRow();
             return { row: rowCount, col: 0 };
@@ -94,12 +110,12 @@ export function useGridNavigation(
         } else if (col < 0) {
           if (row <= 0) return pos;
           row -= 1;
-          col = colCount - 1;
+          col = getColCountForRow(row) - 1;
         }
         return { row, col };
       });
     },
-    [colCount, rowCount, onRequestAddRow],
+    [getColCountForRow, rowCount, onRequestAddRow],
   );
 
   const handleKeyDown = useCallback(
@@ -146,6 +162,14 @@ export function useGridNavigation(
             return;
           default:
             if (PRINTABLE_KEY.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+              // preventDefault ist noetig, obwohl das <div role="cell">
+              // selbst kein Standardverhalten fuer Tastendruecke hat: ohne
+              // sie liefert der Browser das native keypress/input-Event
+              // trotzdem an das neu gemountete <input>, das startEditing
+              // synchron per useLayoutEffect fokussiert (noch im selben
+              // Event-Zyklus) - das Zeichen wuerde dann doppelt landen
+              // (einmal ueber initialChar, einmal nativ).
+              e.preventDefault();
               startEditing(e.key);
             }
         }
@@ -175,5 +199,18 @@ export function useGridNavigation(
     [editing, moveUp, moveDown, moveHorizontal, moveTab, startEditing, stopEditing],
   );
 
-  return { focused, editing, initialChar, setFocused, startEditing, stopEditing, moveDown, moveTab, handleKeyDown };
+  return {
+    focused,
+    editing,
+    initialChar,
+    editSession,
+    setFocused,
+    startEditing,
+    stopEditing,
+    moveUp,
+    moveDown,
+    moveHorizontal,
+    moveTab,
+    handleKeyDown,
+  };
 }

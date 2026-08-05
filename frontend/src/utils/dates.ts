@@ -91,6 +91,17 @@ export function parseRelativeOrLiteralDate(raw: string, referenceDate: Date): Pa
   const relMatch = v.match(/^\+(\d+)d$/);
   if (relMatch) return fromDate(addDays(referenceDate, Number(relMatch[1])));
 
+  // Kurzschrift: t = heute, Nt = in N Tagen, Nw = in N Wochen, Nj = in N
+  // Jahren. Gross-/Kleinschreibung spielt keine Rolle, da v bereits oben
+  // lowercased wurde.
+  if (v === 't') return fromDate(referenceDate);
+  const dayMatch = v.match(/^(\d+)t$/);
+  if (dayMatch) return fromDate(addDays(referenceDate, Number(dayMatch[1])));
+  const weekMatch = v.match(/^(\d+)w$/);
+  if (weekMatch) return fromDate(addDays(referenceDate, Number(weekMatch[1]) * 7));
+  const yearMatch = v.match(/^(\d+)j$/);
+  if (yearMatch) return fromDate(addYears(referenceDate, Number(yearMatch[1])));
+
   const isoMatch = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (isoMatch) {
     const d = fromIsoDate(v);

@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react';
-import { SplitPane } from './components/SplitPane';
 import { StatusBar } from './components/StatusBar';
 import type { TableStatus } from './components/StatusBar';
 import { NoteSection } from './components/NoteSection';
@@ -12,8 +11,7 @@ export function App() {
   const contacts = useContacts();
   const [statusById, setStatusById] = useState<Record<string, TableStatus>>({});
 
-  const aufgabe = definitions?.find((d) => d.id === 'aufgabe');
-  const info = definitions?.find((d) => d.id === 'info');
+  const notes = definitions?.find((d) => d.id === 'notes');
 
   const handleStatusChange = useCallback((tableId: string, status: TableStatus) => {
     setStatusById((prev) => ({ ...prev, [tableId]: status }));
@@ -23,23 +21,11 @@ export function App() {
     <>
       <TopBar />
       <main className="tables-wrap">
-        {aufgabe && info ? (
-          <SplitPane
-            storageKey="split-pane-width"
-            left={
-              <NoteSection
-                definition={aufgabe}
-                contacts={contacts}
-                onStatusChange={(status) => handleStatusChange(aufgabe.id, status)}
-              />
-            }
-            right={
-              <NoteSection
-                definition={info}
-                contacts={contacts}
-                onStatusChange={(status) => handleStatusChange(info.id, status)}
-              />
-            }
+        {notes ? (
+          <NoteSection
+            definition={notes}
+            contacts={contacts}
+            onStatusChange={(status) => handleStatusChange(notes.id, status)}
           />
         ) : (
           <p className="loading-hint">Lade Notizen…</p>
