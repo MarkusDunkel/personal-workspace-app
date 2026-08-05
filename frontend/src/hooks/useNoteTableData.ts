@@ -3,7 +3,7 @@ import { getTable, putTable } from '../api/notesApi';
 import type { TableRow } from '../api/noteTypes';
 import { useDebouncedCallback } from './useDebouncedCallback';
 
-export function useNoteTableData(tableId: string) {
+export function useNoteTableData(tableId: string, reloadToken: number = 0) {
   const [rows, setRowsState] = useState<TableRow[]>([]);
   const [saveStatus, setSaveStatus] = useState('Bereit');
 
@@ -94,7 +94,9 @@ export function useNoteTableData(tableId: string) {
         dirtyRef.current = false;
       })
       .catch(() => setSaveStatus('Konnte Tabelle nicht laden'));
-  }, [tableId]);
+    // reloadToken erzwingt einen erneuten Ladevorgang (z.B. nach
+    // erfolgreichem Absenden, wenn die Quelle serverseitig geleert wurde).
+  }, [tableId, reloadToken]);
 
   return { rows, saveStatus, setCell, addRow, deleteRow, reorderRow, saveNow: doSave };
 }

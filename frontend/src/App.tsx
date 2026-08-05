@@ -10,6 +10,10 @@ export function App() {
   const { definitions } = useNoteTableDefinitions();
   const contacts = useContacts();
   const [statusById, setStatusById] = useState<Record<string, TableStatus>>({});
+  // Wird nach erfolgreichem Absenden hochgezaehlt, um useNoteTableData zu
+  // einem erneuten Ladevorgang zu zwingen (die Quelle wurde serverseitig
+  // geleert, siehe NoteSubmitService.applyDecisions).
+  const [reloadToken, setReloadToken] = useState(0);
 
   const notes = definitions?.find((d) => d.id === 'notes');
 
@@ -17,14 +21,19 @@ export function App() {
     setStatusById((prev) => ({ ...prev, [tableId]: status }));
   }, []);
 
+  const handleSubmitSuccess = useCallback(() => {
+    setReloadToken((n) => n + 1);
+  }, []);
+
   return (
     <>
-      <TopBar />
+      <TopBar onSubmitSuccess={handleSubmitSuccess} />
       <main className="tables-wrap">
         {notes ? (
           <NoteSection
             definition={notes}
             contacts={contacts}
+            reloadToken={reloadToken}
             onStatusChange={(status) => handleStatusChange(notes.id, status)}
           />
         ) : (

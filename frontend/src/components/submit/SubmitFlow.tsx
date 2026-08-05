@@ -1,11 +1,26 @@
+import { useEffect, useRef } from 'react';
 import { useNoteSubmit } from '../../hooks/useNoteSubmit';
 import { ReviewCandidateModal } from './ReviewCandidateModal';
 import { SubmitProgressModal } from './SubmitProgressModal';
 import { SubmitResultModal } from './SubmitResultModal';
 
-export function SubmitFlow() {
+interface SubmitFlowProps {
+  onSubmitSuccess: () => void;
+}
+
+export function SubmitFlow({ onSubmitSuccess }: SubmitFlowProps) {
   const { phase, candidates, knownPersons, currentIndex, resultMessage, errorMessage, begin, decide, reset } =
     useNoteSubmit();
+
+  const notifiedRef = useRef(false);
+  useEffect(() => {
+    if (phase === 'done' && !notifiedRef.current) {
+      notifiedRef.current = true;
+      onSubmitSuccess();
+    } else if (phase !== 'done') {
+      notifiedRef.current = false;
+    }
+  }, [phase, onSubmitSuccess]);
 
   if (phase === 'idle') {
     return (

@@ -6,11 +6,12 @@ import { DataGrid } from './DataGrid';
 interface NoteSectionProps {
   definition: TableDefinition;
   contacts: string[];
+  reloadToken: number;
   onStatusChange: (status: { label: string; saveStatus: string; rowCount: number }) => void;
 }
 
-export function NoteSection({ definition, contacts, onStatusChange }: NoteSectionProps) {
-  const table = useNoteTableData(definition.id);
+export function NoteSection({ definition, contacts, reloadToken, onStatusChange }: NoteSectionProps) {
+  const table = useNoteTableData(definition.id, reloadToken);
 
   useEffect(() => {
     onStatusChange({ label: definition.label, saveStatus: table.saveStatus, rowCount: table.rows.length });
