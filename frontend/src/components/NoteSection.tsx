@@ -78,16 +78,18 @@ export function NoteSection({
           disabled={!focusedRow}
         />
       </div>
-      <DataGrid
-        definition={definition}
-        rows={table.rows}
-        onCellCommit={table.setCell}
-        onAddRow={addRowWithDefaultTyp}
-        onDeleteRow={table.deleteRow}
-        onReorderRow={table.reorderRow}
-        onFocusedRowChange={setFocusedRow}
-        contacts={contacts}
-      />
+      <div className="data-grid-scroll">
+        <DataGrid
+          definition={definition}
+          rows={table.rows}
+          onCellCommit={table.setCell}
+          onAddRow={addRowWithDefaultTyp}
+          onDeleteRow={table.deleteRow}
+          onReorderRow={table.reorderRow}
+          onFocusedRowChange={setFocusedRow}
+          contacts={contacts}
+        />
+      </div>
     </section>
   );
 }

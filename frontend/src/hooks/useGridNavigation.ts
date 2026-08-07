@@ -57,15 +57,30 @@ export function useGridNavigation(
   const onRequestAddRow = options.onRequestAddRow;
 
   const moveDown = useCallback(() => {
+    // onRequestAddRow() darf NICHT innerhalb des setFocused-Updater-
+    // Callbacks aufgerufen werden: es loest in NoteSection ein setState in
+    // einer ANDEREN Komponente aus, waehrend React noch mitten in der
+    // Berechnung dieses Updaters steckt ("Cannot update a component while
+    // rendering a different component"). Ein frueherer Versuch, das per
+    // Flag INNERHALB des Updaters zu setzen und ausserhalb zu pruefen, ging
+    // von einer synchronen Ausfuehrung des Updaters aus - der Updater laeuft
+    // aber tatsaechlich erst spaeter (Concurrent Rendering), wodurch die
+    // Pruefung immer den Ausgangswert false sah und onRequestAddRow() nie
+    // aufgerufen wurde (Symptom: Enter/Tab am Tabellenende verliess die
+    // Zelle, legte aber keine neue Zeile an). Da focused hier bereits als
+    // aktueller State-Wert im Closure vorliegt, braucht es den
+    // Updater-Trick gar nicht - die Bedingung laesst sich direkt daraus
+    // berechnen, synchron, bevor setFocused ueberhaupt aufgerufen wird.
+    const needsNewRow = focused.row >= rowCount - 1;
     setFocused((pos) => {
       if (pos.row >= rowCount - 1) {
-        onRequestAddRow();
         return { row: rowCount, col: 0 };
       }
       const row = pos.row + 1;
       return { row, col: Math.min(pos.col, getColCountForRow(row) - 1) };
     });
-  }, [rowCount, onRequestAddRow, getColCountForRow]);
+    if (needsNewRow) onRequestAddRow();
+  }, [focused, rowCount, onRequestAddRow, getColCountForRow]);
 
   const moveUp = useCallback(() => {
     setFocused((pos) => {
@@ -97,12 +112,17 @@ export function useGridNavigation(
 
   const moveTab = useCallback(
     (delta: 1 | -1) => {
+      // Siehe ausfuehrlichen Kommentar in moveDown - needsNewRow wird
+      // synchron aus dem aktuellen focused-Wert berechnet, NICHT innerhalb
+      // des setFocused-Updater-Callbacks (der laeuft asynchron und lieferte
+      // hier denselben Bug wie in moveDown: onRequestAddRow() wurde nie
+      // erreicht).
+      const needsNewRow = delta > 0 && focused.col + delta >= getColCountForRow(focused.row) && focused.row >= rowCount - 1;
       setFocused((pos) => {
         let { row, col } = pos;
         col += delta;
         if (col >= getColCountForRow(row)) {
           if (row >= rowCount - 1) {
-            onRequestAddRow();
             return { row: rowCount, col: 0 };
           }
           row += 1;
@@ -114,8 +134,9 @@ export function useGridNavigation(
         }
         return { row, col };
       });
+      if (needsNewRow) onRequestAddRow();
     },
-    [getColCountForRow, rowCount, onRequestAddRow],
+    [focused, getColCountForRow, rowCount, onRequestAddRow],
   );
 
   const handleKeyDown = useCallback(

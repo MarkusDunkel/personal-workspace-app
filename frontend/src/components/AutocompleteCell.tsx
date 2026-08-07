@@ -70,7 +70,7 @@ export function AutocompleteCell({
           setDraft(e.target.value);
           setHighlightIndex(0);
         }}
-        onBlur={() => commit(draft)}
+        onBlur={() => commit(matches.length === 1 ? matches[0] : draft)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             e.stopPropagation();
@@ -101,7 +101,7 @@ export function AutocompleteCell({
           if (e.key === 'Tab') {
             e.preventDefault();
             e.stopPropagation();
-            commit(draft);
+            commit(matches.length === 1 ? matches[0] : draft);
             onMoveTab(e.shiftKey ? -1 : 1);
           }
         }}

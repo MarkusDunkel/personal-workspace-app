@@ -50,16 +50,34 @@ export function DataGrid({
     if (!nav.editing) {
       focusCell(nav.focused.row, nav.focused.col);
     }
-  }, [nav.focused, nav.editing]); // eslint-disable-line react-hooks/exhaustive-deps
+    // rows als Dependency: nach einem moveDown()/moveTab() ueber die letzte
+    // Zeile hinaus (neue Zeile wird angelegt) steht nav.focused schon auf
+    // der neuen Position, WAEHREND rows die neue Zeile in diesem Render-
+    // Zyklus noch nicht enthaelt - ohne rows hier wuerde dieser Effect kein
+    // zweites Mal laufen, sobald die neue Zeile tatsaechlich erscheint, und
+    // der Fokus ginge sichtbar verloren (siehe DataGrid.tsx-Bug: doppeltes
+    // Enter in der letzten Zeile legte zwar eine Zeile an, fokussierte sie
+    // aber nie).
+  }, [nav.focused, nav.editing, rows]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (nav.editing) return;
     const column = columnsForRow(definition, rows[nav.focused.row])[nav.focused.col];
     if (column?.label === 'Inhalt') {
+      // Bewusst OHNE Klickposition: dieser Effect ist der automatische
+      // "sofort tippen koennen"-Trigger, der bei JEDEM Fokuswechsel auf eine
+      // "Inhalt"-Zelle greift - egal ob per Klick, Pfeiltaste, Tab oder
+      // Enter. Der Cursor soll dabei immer ans Textende springen (direkt
+      // weiterschreiben), niemals an eine Klickposition - eine praezise
+      // Zielposition liefert ausschliesslich der explizite
+      // onDoubleClick-Handler unten, der seine eigene, frische Koordinate
+      // hat.
       nav.startEditing();
     }
+    // rows als Dependency aus demselben Grund wie im Effect oben - siehe
+    // Kommentar dort.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nav.focused, nav.editing]);
+  }, [nav.focused, nav.editing, rows]);
 
   useEffect(() => {
     onFocusedRowChange?.(rows[nav.focused.row] ?? null);
@@ -147,8 +165,20 @@ export function DataGrid({
                     }}
                     tabIndex={isFocused ? 0 : -1}
                     className={`data-grid-cell data-grid-cell--${col.id}${isFocused ? ' focused' : ''}${isEditing ? ' editing' : ''}`}
-                    onClick={() => {
+                    onMouseDown={() => {
+                      // Bewusst hier statt in onClick: mousedown feuert VOR
+                      // dem blur der zuvor editierten Zelle, dessen commit()
+                      // einen Rerender ausloest, der das urspruengliche
+                      // Klick-Ziel im DOM ersetzen kann - der nachfolgende
+                      // "click" landet dann u.U. gar nicht mehr auf dieser
+                      // Zelle, sondern bubbelt zu einem stabilen Vorfahren
+                      // hoch (Symptom: Klick auf Zelle B fokussierte
+                      // stattdessen wieder die zuvor editierte Zelle A).
+                      // mousedown ist robust dagegen, weil es bereits laeuft,
+                      // bevor der Blur-getriebene Rerender das Ziel veraendert.
                       nav.setFocused({ row: rowIndex, col: colIndex });
+                    }}
+                    onClick={() => {
                       focusCell(rowIndex, colIndex);
                     }}
                     onDoubleClick={() => {

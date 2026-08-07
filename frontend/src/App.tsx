@@ -31,6 +31,13 @@ export function App() {
     setStatusById((prev) => ({ ...prev, [tableId]: status }));
   }, []);
 
+  const handleNotesStatusChange = useCallback(
+    (status: TableStatus) => {
+      if (notes) handleStatusChange(notes.id, status);
+    },
+    [notes, handleStatusChange],
+  );
+
   const handleSubmitSuccess = useCallback(() => {
     setReloadToken((n) => n + 1);
   }, []);
@@ -56,7 +63,7 @@ export function App() {
             currentProjekt={currentProjekt}
             currentMeeting={currentMeeting}
             reloadToken={reloadToken}
-            onStatusChange={(status) => handleStatusChange(notes.id, status)}
+            onStatusChange={handleNotesStatusChange}
           />
         ) : (
           <p className="loading-hint">Lade Notizen…</p>

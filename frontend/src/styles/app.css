@@ -82,6 +82,7 @@ body {
     display: flex;
     gap: 1rem;
     padding: 0.35rem 0;
+    flex-shrink: 0;
 }
 
 .statusbar-tables {
@@ -109,6 +110,12 @@ body {
     flex-direction: column;
     height: 100%;
     padding: 0 0.5rem;
+    overflow: hidden;
+}
+
+.data-grid-scroll {
+    flex: 1;
+    overflow-y: auto;
 }
 
 .data-grid {
@@ -127,7 +134,7 @@ body {
     min-width: 0;
     border: 1px solid var(--border);
     padding: 0;
-    height: 2rem;
+    min-height: 2rem;
     outline: none;
     position: relative;
 }
@@ -225,8 +232,16 @@ body {
 }
 
 .cell-input {
+    /* Bewusst KEIN height: 100% - eine <input> zentriert ihren Text/Cursor
+       nativ vertikal in ihrer eigenen Box (Browser-Default fuer
+       Single-Line-Inputs), unabhaengig von CSS-Padding. Solange Zeilen fix
+       2rem hoch waren, fiel das nicht auf; seit die "Inhalt"-Zelle die ganze
+       Zeile dynamisch hoeher macht, wuerde ein auf 100% gestrecktes Input
+       seinen Text/Cursor mittig in dieser viel groesseren Zeile zeigen statt
+       oben, wo .cell-display (ein einfaches <span>) im Anzeigezustand
+       natuerlicherweise bleibt. Feste Hoehe = gleiches Verhalten wie vorher. */
     width: 100%;
-    height: 100%;
+    height: 2rem;
     box-sizing: border-box;
     padding: 0.35rem 0.5rem;
     font-family: var(--font-mono);
@@ -239,6 +254,43 @@ body {
 
 .statusbar-table {
     margin-right: 1rem;
+}
+
+/* Bullet-Zelle ("Inhalt"): ein einziger Render-Pfad fuer Anzeige UND
+   Bearbeitung, bewusst ohne Overlay-Trick (fruehere Version legte eine
+   unsichtbare Textarea ueber eine separat gerenderte Bullet-Optik - das
+   fuehrte zu Drift zwischen Cursor-Position und sichtbarem Text, sobald
+   Zeilen umbrachen oder Einruecktiefe wechselte). Bullet-Symbol und Einzug
+   sind jetzt normale Zeichen im Text selbst (siehe toDisplayText in
+   bulletText.ts), daher reicht fuer beide Zustaende dieselbe einfache
+   Text-Darstellung - kein haengender Einzug bei Zeilenumbruch (bewusster
+   Kompromiss fuer Robustheit), beide Zustaende sehen dafuer immer exakt
+   gleich aus. */
+.bullet-cell-display,
+.bullet-text-cell-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.35rem 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.bullet-cell-display {
+    height: auto;
+}
+
+.bullet-text-cell-input {
+    border: none;
+    outline: none;
+    resize: none;
+    overflow: hidden;
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
 }
 
 .autocomplete-cell {
@@ -283,7 +335,13 @@ body {
 
 .date-picker-input-row {
     display: flex;
-    align-items: center;
+    /* flex-start statt center: sobald die Zeile durch eine mehrzeilige
+       Nachbar-"Inhalt"-Zelle hoeher als die normalen 2rem wird, wuerde
+       center das Eingabefeld vertikal mittig in der ganzen Zeile
+       platzieren statt oben (gleiches Symptom, das beim Personen-Feld
+       bereits behoben wurde, hier aber durch diesen Flex-Container statt
+       durch height:100% auf .cell-input verursacht). */
+    align-items: flex-start;
     gap: 0.4rem;
     width: 100%;
     height: 100%;

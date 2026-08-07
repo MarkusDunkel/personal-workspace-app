@@ -4,6 +4,14 @@ import { AutocompleteCell } from './AutocompleteCell';
 import { DatePickerCell } from './DatePickerCell';
 import { TypCell } from './TypCell';
 import { TextEditorModal } from './TextEditorModal';
+import { BulletTextCell } from './BulletTextCell';
+
+// Vorerst deaktiviert: das automatische Oeffnen des Vollbild-Text-Editor-
+// Modals fuer die Spalte "Inhalt" hat sich als unpraktikabel erwiesen und
+// wurde durch Inline-Editing mit Bullet-Listen (BulletTextCell) ersetzt.
+// Code bleibt fuer eine spaetere Reaktivierung erhalten (Muster analog zu
+// CALENDAR_POPUP_ENABLED in DatePickerCell.tsx).
+const TEXT_EDITOR_MODAL_ENABLED = false;
 
 export interface CellProps {
   column: ColumnDefinition;
@@ -57,25 +65,42 @@ export function TextCell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!editing) {
-    return (
-      <span className={`cell-display${focused ? ' cell-focused' : ''}${value ? '' : ' cell-placeholder'}`}>
-        {value ?? column.label}
-      </span>
-    );
-  }
-
   if (column.label === 'Inhalt') {
+    if (editing && TEXT_EDITOR_MODAL_ENABLED) {
+      return (
+        <TextEditorModal
+          value={value}
+          onCommit={onCommit}
+          onCancel={onCancelEdit}
+          onMoveUp={onMoveUp}
+          onMoveDown={onMoveDown}
+          onMoveHorizontal={onMoveHorizontal}
+          onMoveTab={onMoveTab}
+        />
+      );
+    }
     return (
-      <TextEditorModal
+      <BulletTextCell
+        column={column}
         value={value}
+        focused={focused}
+        editing={editing}
+        initialChar={initialChar}
         onCommit={onCommit}
-        onCancel={onCancelEdit}
+        onCancelEdit={onCancelEdit}
         onMoveUp={onMoveUp}
         onMoveDown={onMoveDown}
         onMoveHorizontal={onMoveHorizontal}
         onMoveTab={onMoveTab}
       />
+    );
+  }
+
+  if (!editing) {
+    return (
+      <span className={`cell-display${focused ? ' cell-focused' : ''}${value ? '' : ' cell-placeholder'}`}>
+        {value ?? column.label}
+      </span>
     );
   }
 
