@@ -17,7 +17,7 @@ export interface UseGridNavigation {
   editSession: number;
   setFocused: (pos: GridPosition) => void;
   startEditing: (initialChar?: string) => void;
-  stopEditing: (commit: boolean) => void;
+  stopEditing: () => void;
   moveUp: () => void;
   moveDown: () => void;
   moveHorizontal: (delta: 1 | -1) => void;
@@ -49,7 +49,7 @@ export function useGridNavigation(
     setEditSession((n) => n + 1);
   }, []);
 
-  const stopEditing = useCallback((_commit: boolean) => {
+  const stopEditing = useCallback(() => {
     setEditing(false);
     setInitialChar(undefined);
   }, []);
@@ -201,16 +201,16 @@ export function useGridNavigation(
       switch (e.key) {
         case 'Escape':
           e.preventDefault();
-          stopEditing(false);
+          stopEditing();
           return;
         case 'Enter':
           e.preventDefault();
-          stopEditing(true);
+          stopEditing();
           moveDown();
           return;
         case 'Tab':
           e.preventDefault();
-          stopEditing(true);
+          stopEditing();
           moveTab(e.shiftKey ? -1 : 1);
           return;
         default:

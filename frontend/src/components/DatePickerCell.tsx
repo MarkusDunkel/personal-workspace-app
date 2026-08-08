@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { CellProps } from './Cell';
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import type { CellHandle, CellProps } from './Cell';
 import { DatePickerPopup } from './DatePickerPopup';
 import { fromIsoDate, parseRelativeOrLiteralDate, toIsoDate } from '../utils/dates';
+import { useCommitOnce } from '../hooks/useCommitOnce';
 
 const PREVIEW_FORMAT = new Intl.DateTimeFormat('de-AT', {
   weekday: 'short',
@@ -20,19 +21,28 @@ function today(): Date {
 // im Code, wird aber nicht mehr geoeffnet.
 const CALENDAR_POPUP_ENABLED = false;
 
-export function DatePickerCell({ column, value, focused, editing, initialChar, onCommit, onCancelEdit, onMoveDown, onMoveTab }: CellProps) {
+export const DatePickerCell = forwardRef<CellHandle, CellProps>(function DatePickerCell(
+  { column, value, focused, editing, initialChar, onCommit, onCancelEdit, onMoveUp, onMoveDown, onMoveHorizontal, onMoveTab },
+  ref,
+) {
   const committedDate = value ? fromIsoDate(value) : null;
 
   // Wird bei jedem neuen Editiervorgang frisch gemountet (siehe DataGrid.tsx
   // key={editing ? `editing-${editSession}` : 'idle'}), daher initialisieren
   // sich alle States hier garantiert korrekt - kein Effect-Timing-Risiko mehr.
-  const [draft, setDraft] = useState(initialChar ?? '');
+  // Mit vorhandenem Wert vorbefuellen (Anzeigeformat, analog zu TypCell/
+  // AutocompleteCell) statt immer leer zu starten: seit jede Zelle beim
+  // blossen Durchtabben automatisch editiert (DataGrid.tsx Auto-Edit-Effect),
+  // wuerde ein leerer Draft beim Verlassen ohne Tippen faelschlich als
+  // Loeschung committet (commitFromDraft() unten interpretiert einen leeren
+  // getrimmten Draft als "Wert entfernen").
+  const [draft, setDraft] = useState(initialChar ?? (committedDate ? PREVIEW_FORMAT.format(committedDate) : ''));
   const [popupOpen, setPopupOpen] = useState(CALENDAR_POPUP_ENABLED);
   const [gridFocused, setGridFocused] = useState(false);
   const [cursorDate, setCursorDate] = useState<Date>(committedDate ?? today());
   const inputRef = useRef<HTMLInputElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
-  const hasCommittedRef = useRef(false);
+  const commitOnce = useCommitOnce();
 
   useLayoutEffect(() => {
     if (editing && !gridFocused && inputRef.current) {
@@ -57,27 +67,30 @@ export function DatePickerCell({ column, value, focused, editing, initialChar, o
   const preview = draft.trim() === '' ? null : parseRelativeOrLiteralDate(draft, today());
 
   const commitFromDraft = () => {
-    if (hasCommittedRef.current) return;
-    const trimmed = draft.trim();
-    if (trimmed === '') {
-      hasCommittedRef.current = true;
-      onCommit(null);
-      return;
-    }
-    const parsed = parseRelativeOrLiteralDate(trimmed, today());
-    hasCommittedRef.current = true;
-    if (parsed.isoDate) {
-      onCommit(parsed.isoDate);
-    } else {
+    return commitOnce(() => {
+      const trimmed = draft.trim();
+      if (trimmed === '') {
+        onCommit(null);
+        return null;
+      }
+      const parsed = parseRelativeOrLiteralDate(trimmed, today());
+      if (parsed.isoDate) {
+        onCommit(parsed.isoDate);
+        return parsed.isoDate;
+      }
+      // Kein Datenverlust: ein nicht als Datum erkennbarer Freitext ist
+      // kein gueltiger, speicherbarer Zustand - onCancelEdit() faellt auf
+      // den zuletzt committeten value zurueck (analog TypCell.tsx).
       onCancelEdit();
-    }
+      return undefined;
+    });
   };
 
   const confirmDate = (date: Date) => {
-    if (hasCommittedRef.current) return;
-    hasCommittedRef.current = true;
-    onCommit(toIsoDate(date));
+    commitOnce(() => onCommit(toIsoDate(date)));
   };
+
+  useImperativeHandle(ref, () => ({ commitPending: commitFromDraft }));
 
   if (!editing) {
     const display = value ? PREVIEW_FORMAT.format(fromIsoDate(value) ?? undefined) : null;
@@ -100,7 +113,6 @@ export function DatePickerCell({ column, value, focused, editing, initialChar, o
             setPopupOpen(CALENDAR_POPUP_ENABLED);
           }}
           onBlur={(e) => {
-            if (hasCommittedRef.current) return;
             if (popupRef.current?.contains(e.relatedTarget as Node)) return;
             commitFromDraft();
           }}
@@ -132,6 +144,41 @@ export function DatePickerCell({ column, value, focused, editing, initialChar, o
               e.stopPropagation();
               commitFromDraft();
               onMoveTab(e.shiftKey ? -1 : 1);
+              return;
+            }
+
+            // Pfeiltasten verlassen die Zelle am Feldrand, analog zu
+            // BulletTextCell.tsx.
+            const el = e.currentTarget;
+            const atStart = el.selectionStart === 0 && el.selectionEnd === 0;
+            const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
+
+            if (e.key === 'ArrowLeft' && atStart) {
+              e.preventDefault();
+              e.stopPropagation();
+              commitFromDraft();
+              onMoveHorizontal(-1);
+              return;
+            }
+            if (e.key === 'ArrowRight' && atEnd) {
+              e.preventDefault();
+              e.stopPropagation();
+              commitFromDraft();
+              onMoveHorizontal(1);
+              return;
+            }
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              e.stopPropagation();
+              commitFromDraft();
+              onMoveUp();
+              return;
+            }
+            if (e.key === 'ArrowDown' && !CALENDAR_POPUP_ENABLED) {
+              e.preventDefault();
+              e.stopPropagation();
+              commitFromDraft();
+              onMoveDown();
             }
           }}
         />
@@ -156,7 +203,6 @@ export function DatePickerCell({ column, value, focused, editing, initialChar, o
           ref={popupRef}
           tabIndex={-1}
           onBlur={(e) => {
-            if (hasCommittedRef.current) return;
             if (popupRef.current?.contains(e.relatedTarget as Node)) return;
             commitFromDraft();
           }}
@@ -180,4 +226,4 @@ export function DatePickerCell({ column, value, focused, editing, initialChar, o
       )}
     </div>
   );
-}
+});

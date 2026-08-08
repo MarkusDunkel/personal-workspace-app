@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DragEvent, KeyboardEvent } from 'react';
 import type { ColumnDefinition, TableDefinition, TableRow } from '../api/noteTypes';
 import { useGridNavigation } from '../hooks/useGridNavigation';
 import { Cell } from './Cell';
+import type { CellHandle } from './Cell';
 import { improveCellText, IMPROVE_READABILITY_PROMPT_ID } from '../api/claudeApi';
 import { toDisplayText, fromDisplayText } from '../utils/bulletText';
 
@@ -34,6 +35,15 @@ export function DataGrid({
   contacts,
 }: DataGridProps) {
   const cellRefs = useRef<Map<string, HTMLDivElement | HTMLButtonElement>>(new Map());
+  const gridRootRef = useRef<HTMLDivElement>(null);
+  // Zeigt immer auf die aktuell editierende Zellinstanz (oder null, wenn
+  // keine Zelle editiert wird). Wird vor JEDEM Weg, eine Zelle zu verlassen,
+  // aufgerufen (Klick auf andere Zelle, Magic-Button) - committet den
+  // aktuellen Draft synchron, BEVOR der Rerender die editierende Instanz
+  // unmountet (key={editing ? ... : 'idle'} unten). Ohne das ging der lokale
+  // draft-State jeder Zelle beim Verlassen ohne echten DOM-blur verloren.
+  const editingCellRef = useRef<CellHandle | null>(null);
+  const commitEditingCell = () => editingCellRef.current?.commitPending();
   const [dragRowId, setDragRowId] = useState<string | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [magicLoading, setMagicLoading] = useState<Set<string>>(new Set());
@@ -60,19 +70,67 @@ export function DataGrid({
     }
   };
 
+  // Haelt fest, ob der Browser-Fokus GERADE (zuletzt bekannt) irgendwo im
+  // Grid lag - im Gegensatz zu einem einmal gesetzten "war schon mal
+  // fokussiert"-Flag wird dieser Wert bei JEDEM Fokuswechsel aktualisiert,
+  // auch wenn der Fokus das Grid wieder verlaesst (z.B. Klick in ein Feld
+  // ausserhalb des Grids wie "Projekt (Zeile)"/"Meeting (Zeile)" in
+  // NoteSection.tsx). Das ist noetig, weil der Fokus-Reparatur-Effect unten
+  // bei JEDER Aenderung von rows erneut laeuft - auch wenn diese Aenderung
+  // ganz woanders ausgeloest wurde (z.B. table.setCell aus dem
+  // Projekt-Feld). Ohne diese Live-Pruefung reisst der Effect den
+  // DOM-Fokus aktiv zurueck ins Grid, WAEHREND der Nutzer bewusst in einem
+  // Feld ausserhalb tippt - Symptom: eine im Projekt-Feld getroffene
+  // Vorschlagsauswahl feuerte durch den zurueckgerissenen Fokus ein
+  // natives blur auf dem Projekt-Input, dessen commit() den frisch
+  // gesetzten Wert sofort wieder verwarf.
+  //
+  // focusin am document (statt onFocus direkt am Grid-Container) wird
+  // bewusst verwendet, um JEDEN Fokuswechsel im gesamten Dokument zu sehen -
+  // nicht nur den ersten. Bewusst NUR focusin, kein focusout: focusout
+  // liefert zwar relatedTarget (das neu fokussierte Element), aber bei
+  // einem Zell-Unmount (Escape/Commit auf einer editierenden Zelle) wirft
+  // der Browser den Fokus zwischenzeitlich auf <body> - relatedTarget waere
+  // dann body, also "ausserhalb des Grids", obwohl der nachfolgende
+  // Fokus-Reparatur-Effect ihn im SELBEN Layout-Effect-Durchlauf wieder
+  // zurueckholt. Ein focusout-Handler wuerde diesen technischen
+  // Zwischenzustand faelschlich als "Nutzer hat das Grid bewusst verlassen"
+  // werten. focusin allein reicht: jeder ECHTE Wechsel zu einem Element
+  // ausserhalb des Grids (z.B. Klick ins Projekt-Feld) loest dort ein
+  // eigenes focusin aus, das explizit "false" setzt.
+  const focusInGridRef = useRef(false);
+
   useEffect(() => {
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target;
+      // Gegen den Grid-Root-Container pruefen (gridRootRef), NICHT gegen
+      // die cellRefs-Map einzelner Zellen: waehrend eines Zell-Remounts
+      // (Key-Wechsel idle -> editing-N, z.B. durch den Auto-Edit-Effect)
+      // ruft React ref-Callbacks fuer die alten und neuen Elemente in einer
+      // Reihenfolge auf, die cellRefs.current fuer einen kurzen Moment
+      // unvollstaendig macht - ein focusin, das GENAU in diesem Moment auf
+      // das frisch gemountete <input> feuert, saehe seine eigene Elternzelle
+      // faelschlich als "nicht in cellRefs", da deren ref-Callback zu diesem
+      // Zeitpunkt noch nicht (erneut) gelaufen war. Der Grid-Root-Container
+      // wird dagegen nur einmal gemountet und bleibt stabil.
+      focusInGridRef.current = target instanceof Node && !!gridRootRef.current?.contains(target);
+    };
+
+    document.addEventListener('focusin', handleFocusIn);
+    return () => {
+      document.removeEventListener('focusin', handleFocusIn);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
     if (nav.editing) return;
-    // Nur fokussieren, wenn der Fokus bereits IRGENDWO im Grid liegt - sonst
-    // scrollt element.focus() den Browser-Viewport zu nav.focused (Default
-    // {row:0, col:0}) und reisst die Ansicht an den Tabellenanfang, obwohl
-    // der Nutzer gar keine Zelle angeklickt hat. Symptom war: ein Magic-
-    // Button-Ergebnis, das ueber onCellCommit rows aendert, loeste diesen
-    // Effect erneut aus und sprang zur Default-Position, sobald keine Zelle
-    // fokussiert war (z.B. weil der Nutzer gerade nirgends hingeklickt hat).
-    const active = document.activeElement;
-    const gridHasFocus =
-      active instanceof HTMLElement && Array.from(cellRefs.current.values()).includes(active as never);
-    if (gridHasFocus) {
+    // Nur fokussieren, wenn der Fokus zuletzt tatsaechlich im Grid lag -
+    // sonst scrollt element.focus() den Browser-Viewport zu nav.focused
+    // (Default {row:0, col:0}) und reisst die Ansicht an den Tabellenanfang,
+    // obwohl der Nutzer gar keine Zelle angeklickt hat oder gerade bewusst
+    // in einem Feld ausserhalb des Grids tippt (siehe Kommentar bei
+    // focusInGridRef oben).
+    if (focusInGridRef.current) {
       focusCell(nav.focused.row, nav.focused.col);
     }
     // rows als Dependency: nach einem moveDown()/moveTab() ueber die letzte
@@ -83,20 +141,42 @@ export function DataGrid({
     // der Fokus ginge sichtbar verloren (siehe DataGrid.tsx-Bug: doppeltes
     // Enter in der letzten Zeile legte zwar eine Zeile an, fokussierte sie
     // aber nie).
+    //
+    // useLayoutEffect statt useEffect: laeuft synchron nach dem DOM-Update,
+    // aber VOR dem Browser-Paint - verhindert ein sichtbares Aufblitzen von
+    // "Grid ohne jeden Fokus", das mit useEffect (laeuft erst nach dem
+    // naechsten Paint) kurz sichtbar waere.
   }, [nav.focused, nav.editing, rows]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Merkt sich, fuer welche Fokusposition der Auto-Edit-Effekt unten
+  // zuletzt startEditing() ausgeloest hat. Ohne dieses Gedaechtnis wuerde
+  // Escape (stopEditing(), OHNE die Fokusposition zu aendern) die Zelle
+  // sofort wieder in den Editiermodus zurueckreissen: der Effect haengt an
+  // nav.editing, und ein Wechsel von true -> false auf DERSELBEN Zelle
+  // wuerde erneut greifen, weil sich column/row nicht geaendert haben. Mit
+  // diesem Ref feuert startEditing() nur bei einem tatsaechlichen Wechsel
+  // der Fokusposition - Escape laesst die Zelle danach im reinen
+  // Anzeigemodus, so wie man es von Tabellenkalkulationen kennt.
+  const autoEditedPosRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (nav.editing) return;
+    const posKey = `${nav.focused.row}:${nav.focused.col}`;
+    if (autoEditedPosRef.current === posKey) return;
     const column = columnsForRow(definition, rows[nav.focused.row])[nav.focused.col];
-    if (column?.label === 'Inhalt') {
+    if (column) {
       // Bewusst OHNE Klickposition: dieser Effect ist der automatische
-      // "sofort tippen koennen"-Trigger, der bei JEDEM Fokuswechsel auf eine
-      // "Inhalt"-Zelle greift - egal ob per Klick, Pfeiltaste, Tab oder
-      // Enter. Der Cursor soll dabei immer ans Textende springen (direkt
-      // weiterschreiben), niemals an eine Klickposition - eine praezise
-      // Zielposition liefert ausschliesslich der explizite
-      // onDoubleClick-Handler unten, der seine eigene, frische Koordinate
-      // hat.
+      // "sofort tippen koennen"-Trigger, der bei JEDEM Fokuswechsel auf
+      // IRGENDEINE Zelle greift - egal welche Spalte, egal ob per Klick,
+      // Pfeiltaste, Tab oder Enter. Vorher war das auf label === 'Inhalt'
+      // beschraenkt, wodurch jeder Fokuswechsel auf eine andere Spalte
+      // (Typ, Datum, Person) einen "Fake-Fokus" erzeugte: der aeussere
+      // <div role="cell"> bekam DOM-Fokus (blauer Rahmen), aber ohne
+      // startEditing() wurde nie ein echtes Eingabefeld gemountet - Tippen
+      // bewirkte nichts. Alle Zelltypen haben laengst einen eigenen,
+      // funktionierenden editing-Zustand (siehe TypCell, DatePickerCell,
+      // AutocompleteCell), der nur nie automatisch ausgeloest wurde.
+      autoEditedPosRef.current = posKey;
       nav.startEditing();
     }
     // rows als Dependency aus demselben Grund wie im Effect oben - siehe
@@ -123,7 +203,7 @@ export function DataGrid({
   };
 
   return (
-    <div className="data-grid" role="table">
+    <div className="data-grid" role="table" ref={gridRootRef}>
       {rows.length === 0 ? (
         <div
           className="data-grid-empty"
@@ -201,6 +281,19 @@ export function DataGrid({
                       // stattdessen wieder die zuvor editierte Zelle A).
                       // mousedown ist robust dagegen, weil es bereits laeuft,
                       // bevor der Blur-getriebene Rerender das Ziel veraendert.
+                      //
+                      // commitEditingCell() MUSS hier, vor setFocused, laufen:
+                      // setFocused aendert isFocused/isEditing der zuvor
+                      // editierten Zelle auf false, wodurch ihr key (editing-*
+                      // -> idle) wechselt und React sie unmountet, OHNE dass
+                      // je ein echtes blur-Event feuert (die Zelle wird ja
+                      // nicht per Fokuswechsel verlassen, sondern per Klick
+                      // auf ein anderes Element, dessen mousedown keinen
+                      // nativen Blur ausloest, solange kein preventDefault
+                      // etwas anderes bewirkt). Ohne diesen Aufruf ging der
+                      // noch nicht committete draft-Text der Zelle beim Klick
+                      // in eine andere Zelle komplett verloren.
+                      commitEditingCell();
                       nav.setFocused({ row: rowIndex, col: colIndex });
                     }}
                     onClick={() => {
@@ -214,6 +307,10 @@ export function DataGrid({
                   >
                     <Cell
                       key={isEditing ? `editing-${nav.editSession}` : 'idle'}
+                      ref={(handle) => {
+                        if (isEditing) editingCellRef.current = handle;
+                        else if (editingCellRef.current === handle) editingCellRef.current = null;
+                      }}
                       column={col}
                       value={row.cells[col.id] ?? null}
                       focused={isFocused}
@@ -223,7 +320,7 @@ export function DataGrid({
                       typValues={definition.typValues}
                       onCommit={(value) => {
                         onCellCommit(row.id, col.id, value);
-                        nav.stopEditing(true);
+                        nav.stopEditing();
                         const cellKey = `${row.id}:${col.id}`;
                         setMagicUndo((m) => {
                           if (!m.has(cellKey)) return m;
@@ -232,7 +329,7 @@ export function DataGrid({
                           return next;
                         });
                       }}
-                      onCancelEdit={() => nav.stopEditing(false)}
+                      onCancelEdit={() => nav.stopEditing()}
                       onMoveUp={nav.moveUp}
                       onMoveDown={nav.moveDown}
                       onMoveHorizontal={nav.moveHorizontal}
@@ -293,12 +390,20 @@ export function DataGrid({
                             }}
                             onClick={async (e) => {
                               e.stopPropagation();
-                              if (isFocused && nav.editing) {
-                                nav.stopEditing(true);
-                              }
+                              // commitEditingCell() liefert den frisch
+                              // committeten Wert direkt zurueck, statt
+                              // row.cells[col.id] zu lesen: row ist eine
+                              // Prop und zeigt erst im naechsten Render den
+                              // neuen Stand (onCellCommit loest nur ein
+                              // asynchrones State-Update aus). Vorher wurde
+                              // hier nav.stopEditing(true) aufgerufen, das
+                              // trotz seines Namens nie etwas committet hat
+                              // - Tippen unmittelbar vor dem Klick auf diesen
+                              // Button ging dadurch verloren.
+                              const committedValue = isFocused && nav.editing ? commitEditingCell() : undefined;
                               setMagicError(null);
                               setMagicLoading((s) => new Set(s).add(cellKey));
-                              const previousValue = row.cells[col.id] ?? null;
+                              const previousValue = committedValue !== undefined ? committedValue : (row.cells[col.id] ?? null);
                               try {
                                 const improvedDisplay = await improveCellText(
                                   IMPROVE_READABILITY_PROMPT_ID,

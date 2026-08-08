@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, useState } from 'react';
-import type { CellProps } from './Cell';
+import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import type { CellHandle, CellProps } from './Cell';
 import { bulletSymbolForIndent, fromDisplayText, toDisplayText } from '../utils/bulletText';
+import { useCommitOnce } from '../hooks/useCommitOnce';
 
 // Einfache, einlagige Umsetzung: die Textarea zeigt IMMER exakt den Text,
 // den der Nutzer sieht - Einzug als echte Leerzeichen, Bullet-Symbol als
@@ -24,17 +25,20 @@ function indentOfDisplayLine(text: string, lineIndex: number): number {
   return Math.round(spaces / 3);
 }
 
-export function BulletTextCell({
-  value,
-  focused,
-  editing,
-  onCommit,
-  onCancelEdit,
-  onMoveUp,
-  onMoveDown,
-  onMoveHorizontal,
-  onMoveTab,
-}: CellProps) {
+export const BulletTextCell = forwardRef<CellHandle, CellProps>(function BulletTextCell(
+  {
+    value,
+    focused,
+    editing,
+    onCommit,
+    onCancelEdit,
+    onMoveUp,
+    onMoveDown,
+    onMoveHorizontal,
+    onMoveTab,
+  },
+  ref,
+) {
   // Wird bei jedem neuen Editiervorgang frisch gemountet (siehe DataGrid.tsx
   // key={editing ? `editing-${editSession}` : 'idle'}), daher initialisiert
   // sich draft garantiert korrekt.
@@ -90,10 +94,18 @@ export function BulletTextCell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const commitOnce = useCommitOnce();
+
   const commit = () => {
-    const raw = fromDisplayText(draft);
-    onCommit(raw === '' ? null : raw);
+    return commitOnce(() => {
+      const raw = fromDisplayText(draft);
+      const committed = raw === '' ? null : raw;
+      onCommit(committed);
+      return committed;
+    });
   };
+
+  useImperativeHandle(ref, () => ({ commitPending: commit }));
 
   if (!editing) {
     return (
@@ -295,4 +307,4 @@ export function BulletTextCell({
       onBlur={commit}
     />
   );
-}
+});

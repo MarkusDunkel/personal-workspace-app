@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 interface LabeledAutocompleteInputProps {
   label: string;
@@ -29,11 +29,25 @@ export function LabeledAutocompleteInput({
   const [draft, setDraft] = useState(value);
   const [open, setOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(0);
+  // Haelt den zuletzt selbst committeten Wert fest, bis der Parent ihn ueber
+  // die value-Prop bestaetigt hat. onCommit loest beim Aufrufer (z.B.
+  // NoteSection -> useNoteTableData) ein State-Update aus, das ERST im
+  // naechsten Render-Zyklus als neuer value-Prop hier ankommt (siehe
+  // DataGrid.tsx: focusedRow wird ueber einen separaten useEffect
+  // nachgezogen, nicht synchron mit dem commit). Ohne dieses Ref wuerde der
+  // Sync-Guard unten im Zwischen-Render (open bereits false, draft bereits
+  // der neue Wert, value aber noch der alte) den frisch committeten draft
+  // sofort wieder auf den veralteten value zuruecksetzen - Symptom: eine per
+  // Klick gewaehlte Vorschlagsauswahl blitzte kurz auf und verschwand dann.
+  const lastCommittedRef = useRef<string | null>(null);
 
   // Wert von aussen kann sich aendern (z.B. andere Zeile fokussiert) - draft
-  // synchron nachziehen, solange nicht gerade editiert wird.
-  if (!open && draft !== value) {
+  // synchron nachziehen, ausser es ist exakt der Wert, den diese Komponente
+  // selbst zuletzt committet hat (der Parent hat ihn nur noch nicht
+  // nachgezogen, kein Grund ihn zu verwerfen).
+  if (!open && draft !== value && value !== lastCommittedRef.current) {
     setDraft(value);
+    lastCommittedRef.current = null;
   }
 
   const matches = suggestions.filter((s) => s.toLowerCase().includes(draft.trim().toLowerCase())).slice(0, 8);
@@ -43,6 +57,7 @@ export function LabeledAutocompleteInput({
 
   const commit = (text: string) => {
     if (allowFreeText) {
+      lastCommittedRef.current = text;
       onCommit(text);
       setDraft(text);
       setOpen(false);
@@ -50,6 +65,7 @@ export function LabeledAutocompleteInput({
     }
     const exact = matchExact(text);
     if (exact) {
+      lastCommittedRef.current = exact;
       onCommit(exact);
       setDraft(exact);
     } else {
