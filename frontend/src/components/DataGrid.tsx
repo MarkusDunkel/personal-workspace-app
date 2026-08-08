@@ -3,6 +3,8 @@ import type { DragEvent, KeyboardEvent } from 'react';
 import type { ColumnDefinition, TableDefinition, TableRow } from '../api/noteTypes';
 import { useGridNavigation } from '../hooks/useGridNavigation';
 import { Cell } from './Cell';
+import { improveCellText, IMPROVE_READABILITY_PROMPT_ID } from '../api/claudeApi';
+import { toDisplayText, fromDisplayText } from '../utils/bulletText';
 
 interface DataGridProps {
   definition: TableDefinition;
@@ -34,6 +36,9 @@ export function DataGrid({
   const cellRefs = useRef<Map<string, HTMLDivElement | HTMLButtonElement>>(new Map());
   const [dragRowId, setDragRowId] = useState<string | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [magicLoading, setMagicLoading] = useState<Set<string>>(new Set());
+  const [magicError, setMagicError] = useState<{ key: string; message: string } | null>(null);
+  const [magicUndo, setMagicUndo] = useState<Map<string, string | null>>(new Map());
 
   const getColCountForRow = (row: number) => columnsForRow(definition, rows[row]).length;
 
@@ -43,11 +48,31 @@ export function DataGrid({
 
   const focusCell = (row: number, col: number) => {
     const el = cellRefs.current.get(`${row}:${col}`);
-    el?.focus();
+    // Bereits fokussiertes Element NICHT erneut fokussieren: ein erneutes
+    // element.focus() auf dem schon aktiven Element scrollt den Browser-
+    // Viewport neu zu dessen aktueller Position, sobald sich die Layout-
+    // Hoehe irgendeiner ANDEREN Zeile aendert (z.B. weil eine
+    // Magic-Button-Antwort dort mehr/weniger Zeilen erzeugt) - das
+    // Symptom war ein sichtbarer Scroll-Sprung, obwohl die fokussierte
+    // Zelle selbst gar nicht betroffen war.
+    if (el && el !== document.activeElement) {
+      el.focus();
+    }
   };
 
   useEffect(() => {
-    if (!nav.editing) {
+    if (nav.editing) return;
+    // Nur fokussieren, wenn der Fokus bereits IRGENDWO im Grid liegt - sonst
+    // scrollt element.focus() den Browser-Viewport zu nav.focused (Default
+    // {row:0, col:0}) und reisst die Ansicht an den Tabellenanfang, obwohl
+    // der Nutzer gar keine Zelle angeklickt hat. Symptom war: ein Magic-
+    // Button-Ergebnis, das ueber onCellCommit rows aendert, loeste diesen
+    // Effect erneut aus und sprang zur Default-Position, sobald keine Zelle
+    // fokussiert war (z.B. weil der Nutzer gerade nirgends hingeklickt hat).
+    const active = document.activeElement;
+    const gridHasFocus =
+      active instanceof HTMLElement && Array.from(cellRefs.current.values()).includes(active as never);
+    if (gridHasFocus) {
       focusCell(nav.focused.row, nav.focused.col);
     }
     // rows als Dependency: nach einem moveDown()/moveTab() ueber die letzte
@@ -199,6 +224,13 @@ export function DataGrid({
                       onCommit={(value) => {
                         onCellCommit(row.id, col.id, value);
                         nav.stopEditing(true);
+                        const cellKey = `${row.id}:${col.id}`;
+                        setMagicUndo((m) => {
+                          if (!m.has(cellKey)) return m;
+                          const next = new Map(m);
+                          next.delete(cellKey);
+                          return next;
+                        });
                       }}
                       onCancelEdit={() => nav.stopEditing(false)}
                       onMoveUp={nav.moveUp}
@@ -206,6 +238,94 @@ export function DataGrid({
                       onMoveHorizontal={nav.moveHorizontal}
                       onMoveTab={nav.moveTab}
                     />
+                    {col.label === 'Inhalt' && row.cells[col.id] && (() => {
+                      const cellKey = `${row.id}:${col.id}`;
+                      const isLoading = magicLoading.has(cellKey);
+                      const canUndo = magicUndo.has(cellKey);
+                      return (
+                        <>
+                          {canUndo && (
+                            <button
+                              type="button"
+                              className="magic-undo-button"
+                              title="Verbesserung rückgängig machen"
+                              aria-label="Verbesserung rückgängig machen"
+                              tabIndex={-1}
+                              onMouseDown={(e) => {
+                                // preventDefault verhindert den nativen
+                                // Fokuswechsel auf den Button selbst - ohne
+                                // das wuerde ein Klick hier die eigentlich
+                                // fokussierte Zelle (die der Nutzer gerade
+                                // bearbeitet) aus dem DOM-Fokus verdraengen,
+                                // wodurch der Scroll-Stabilitaets-Effect
+                                // weiter oben faelschlich annimmt, das Grid
+                                // habe keinen Fokus mehr.
+                                e.preventDefault();
+                                e.stopPropagation();
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const previousValue = magicUndo.get(cellKey) ?? null;
+                                onCellCommit(row.id, col.id, previousValue);
+                                setMagicUndo((m) => {
+                                  const next = new Map(m);
+                                  next.delete(cellKey);
+                                  return next;
+                                });
+                              }}
+                            >
+                              ↩
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="magic-button"
+                            title={magicError?.key === cellKey ? magicError.message : 'Text verbessern (Claude)'}
+                            aria-label="Text verbessern"
+                            tabIndex={-1}
+                            disabled={isLoading}
+                            onMouseDown={(e) => {
+                              // Siehe Kommentar am Undo-Button oben - selbes
+                              // preventDefault, damit dieser Klick der
+                              // fokussierten Zelle nicht den DOM-Fokus raubt.
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (isFocused && nav.editing) {
+                                nav.stopEditing(true);
+                              }
+                              setMagicError(null);
+                              setMagicLoading((s) => new Set(s).add(cellKey));
+                              const previousValue = row.cells[col.id] ?? null;
+                              try {
+                                const improvedDisplay = await improveCellText(
+                                  IMPROVE_READABILITY_PROMPT_ID,
+                                  toDisplayText(previousValue!),
+                                  { projekt: row.cells.projekt, meeting: row.cells.meeting },
+                                );
+                                onCellCommit(row.id, col.id, fromDisplayText(improvedDisplay));
+                                setMagicUndo((m) => new Map(m).set(cellKey, previousValue));
+                              } catch (err) {
+                                setMagicError({
+                                  key: cellKey,
+                                  message: err instanceof Error ? err.message : 'Fehler',
+                                });
+                              } finally {
+                                setMagicLoading((s) => {
+                                  const next = new Set(s);
+                                  next.delete(cellKey);
+                                  return next;
+                                });
+                              }
+                            }}
+                          >
+                            {isLoading ? '⏳' : '✨'}
+                          </button>
+                        </>
+                      );
+                    })()}
                   </div>
                 );
               })}

@@ -55,6 +55,16 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- Windows startet die JVM sonst mit sun.jnu.encoding
+                         aus der System-ANSI-Codepage (z.B. Cp1252) statt
+                         UTF-8 - das verstuemmelt Umlaute, die ueber
+                         ProcessBuilder an Kindprozesse (siehe
+                         claude/ClaudeCliRunner.java) uebergeben werden.
+                         Bei "java -jar target/ai-app-*.jar" muessen dieselben
+                         beiden Argumente manuell mitgegeben werden. -->
+                    <jvmArguments>-Dsun.jnu.encoding=UTF-8 -Dfile.encoding=UTF-8</jvmArguments>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>com.github.eirslett</groupId>

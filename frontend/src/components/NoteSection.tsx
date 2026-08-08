@@ -66,7 +66,7 @@ export function NoteSection({
           value={focusedRow?.cells.projekt ?? ''}
           onCommit={(v) => focusedRow && table.setCell(focusedRow.id, 'projekt', v)}
           suggestions={projekte}
-          allowFreeText={false}
+          allowFreeText
           disabled={!focusedRow}
         />
         <LabeledAutocompleteInput
@@ -74,7 +74,7 @@ export function NoteSection({
           value={focusedRow?.cells.meeting ?? ''}
           onCommit={(v) => focusedRow && table.setCell(focusedRow.id, 'meeting', v)}
           suggestions={meetings}
-          allowFreeText={false}
+          allowFreeText
           disabled={!focusedRow}
         />
       </div>
