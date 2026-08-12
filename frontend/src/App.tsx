@@ -3,6 +3,8 @@ import { StatusBar } from './components/StatusBar';
 import type { TableStatus } from './components/StatusBar';
 import { NoteSection } from './components/NoteSection';
 import { TopBar } from './components/TopBar';
+import type { AppView } from './components/TopBar';
+import { AzureBoardsView } from './components/AzureBoardsView';
 import { useContacts } from './hooks/useContacts';
 import { useProjekte } from './hooks/useProjekte';
 import { useMeetings } from './hooks/useMeetings';
@@ -11,6 +13,7 @@ import { useNoteTableDefinitions } from './hooks/useNoteTableDefinitions';
 const HINT = 'Pfeile/Tab navigieren · Eingabe neue Zeile · Entf leert Zelle · Esc abbrechen';
 
 export function App() {
+  const [view, setView] = useState<AppView>('notes');
   const { definitions } = useNoteTableDefinitions();
   const [statusById, setStatusById] = useState<Record<string, TableStatus>>({});
   // Wird nach erfolgreichem Absenden hochgezaehlt, um useNoteTableData und
@@ -45,6 +48,8 @@ export function App() {
   return (
     <>
       <TopBar
+        view={view}
+        onViewChange={setView}
         onSubmitSuccess={handleSubmitSuccess}
         currentProjekt={currentProjekt}
         currentMeeting={currentMeeting}
@@ -53,23 +58,27 @@ export function App() {
         projekte={projekte}
         meetings={meetings}
       />
-      <main className="tables-wrap">
-        {notes ? (
-          <NoteSection
-            definition={notes}
-            contacts={contacts}
-            projekte={projekte}
-            meetings={meetings}
-            currentProjekt={currentProjekt}
-            currentMeeting={currentMeeting}
-            reloadToken={reloadToken}
-            onStatusChange={handleNotesStatusChange}
-          />
-        ) : (
-          <p className="loading-hint">Lade Notizen…</p>
-        )}
-      </main>
-      <StatusBar tables={Object.values(statusById)} hint={HINT} />
+      {view === 'notes' ? (
+        <main className="tables-wrap">
+          {notes ? (
+            <NoteSection
+              definition={notes}
+              contacts={contacts}
+              projekte={projekte}
+              meetings={meetings}
+              currentProjekt={currentProjekt}
+              currentMeeting={currentMeeting}
+              reloadToken={reloadToken}
+              onStatusChange={handleNotesStatusChange}
+            />
+          ) : (
+            <p className="loading-hint">Lade Notizen…</p>
+          )}
+        </main>
+      ) : (
+        <AzureBoardsView />
+      )}
+      {view === 'notes' && <StatusBar tables={Object.values(statusById)} hint={HINT} />}
     </>
   );
 }

@@ -1,4 +1,4 @@
-package at.anlagenbauaustria.aiapp.notes.submit.model;
+package at.anlagenbauaustria.aiapp.pseudonymize.model;
 
 /**
  * Read-only Sicht auf eine Zeile aus person_register.csv (Format siehe

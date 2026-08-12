@@ -38,6 +38,10 @@ export function SubmitFlow({ onSubmitSuccess }: SubmitFlowProps) {
       {phase === 'scanning' && <SubmitProgressModal label="Suche nach Personen und E-Mails…" />}
       {phase === 'reviewing' && candidates[currentIndex] && (
         <ReviewCandidateModal
+          // Erzwingt Neu-Mount pro Kandidat, damit interner State (z.B.
+          // korrigierter Name) nicht faelschlich fuer den naechsten
+          // Kandidaten uebernommen wird.
+          key={currentIndex}
           candidate={candidates[currentIndex]}
           index={currentIndex}
           total={candidates.length}

@@ -52,6 +52,32 @@ body {
     gap: 1rem;
 }
 
+.topbar-menu {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.topbar-menu-item {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+    padding: 0.3rem 0.7rem;
+    cursor: pointer;
+}
+
+.topbar-menu-item:hover {
+    border-color: var(--border);
+}
+
+.topbar-menu-item.active {
+    color: var(--fg);
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 .labeled-autocomplete {
     display: flex;
     align-items: center;
@@ -601,6 +627,28 @@ body {
     padding: 0 0.15rem;
 }
 
+.submit-modal-resolved-value {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin: 0 0 1rem;
+}
+
+.submit-modal-input {
+    font-family: var(--font-mono);
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    padding: 0.35rem;
+}
+
+.submit-modal-input-error {
+    color: var(--error);
+    font-size: 0.75rem;
+}
+
 .submit-modal-actions {
     display: flex;
     flex-direction: column;
@@ -609,7 +657,15 @@ body {
 
 .submit-modal-alias-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
+}
+
+.submit-modal-alias-row .submit-modal-select {
+    /* Bei drei Alias-Buttons soll das Dropdown eine eigene Zeile
+       beanspruchen, damit die Buttons nicht auf sehr schmale Breiten
+       zusammengequetscht werden. */
+    flex-basis: 100%;
 }
 
 .submit-modal-select {
@@ -662,4 +718,185 @@ body {
     padding: 0.5rem;
     max-height: 15rem;
     overflow-y: auto;
+}
+
+.azure-boards-view {
+    flex: 1;
+    padding: 1rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.azb-heading {
+    font-size: 0.95rem;
+    margin: 0 0 0.5rem;
+    color: var(--fg);
+}
+
+.azb-heading-sub {
+    font-size: 0.85rem;
+    margin-top: 1rem;
+}
+
+.azb-category-tiles {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.azb-category-tile {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 0.35rem;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.azb-category-tile.selected {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.azb-category-tile.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.azb-pipeline {
+    display: flex;
+    align-items: stretch;
+    gap: 1rem;
+}
+
+.azb-box {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-width: 0;
+}
+
+.azb-box-description {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin: 0;
+}
+
+.azb-connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    color: var(--muted);
+    font-size: 0.7rem;
+    width: 8rem;
+    flex-shrink: 0;
+    text-align: center;
+}
+
+.azb-connector-arrow {
+    font-size: 1.3rem;
+    color: var(--accent);
+}
+
+.azb-primary-button {
+    align-self: flex-start;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    padding: 0.4rem 1rem;
+    border: 1px solid var(--accent);
+    border-radius: 0.3rem;
+    background: var(--accent);
+    color: var(--bg);
+    cursor: pointer;
+}
+
+.azb-primary-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.azb-apply-button {
+    align-self: flex-start;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    padding: 0.4rem 1rem;
+    margin-top: 0.6rem;
+    border: 1px solid var(--warn);
+    border-radius: 0.3rem;
+    background: var(--warn);
+    color: var(--bg);
+    cursor: pointer;
+}
+
+.azb-apply-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.azb-digest-category {
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+.azb-digest-category select {
+    font-family: var(--font-mono);
+    margin-left: 0.4rem;
+}
+
+.azb-status {
+    font-size: 0.8rem;
+    margin: 0;
+}
+
+.azb-status-ok {
+    color: var(--accent);
+}
+
+.azb-status-error {
+    color: var(--error);
+    white-space: pre-wrap;
+}
+
+.azb-result-path {
+    font-size: 0.75rem;
+    color: var(--muted);
+}
+
+.azb-plan-preview {
+    border-top: 1px solid var(--border);
+    padding-top: 0.6rem;
+}
+
+.azb-plan-markdown {
+    font-size: 0.75rem;
+    max-height: 20rem;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: color-mix(in srgb, var(--fg) 4%, transparent);
+    padding: 0.5rem;
+    border-radius: 0.3rem;
+}
+
+.azb-log {
+    font-size: 0.75rem;
+}
+
+.azb-log pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 15rem;
+    overflow-y: auto;
+    background: color-mix(in srgb, var(--fg) 4%, transparent);
+    padding: 0.5rem;
+    border-radius: 0.3rem;
 }

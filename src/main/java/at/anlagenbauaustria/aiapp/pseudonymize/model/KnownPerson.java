@@ -1,4 +1,4 @@
-package at.anlagenbauaustria.aiapp.notes.submit.model;
+package at.anlagenbauaustria.aiapp.pseudonymize.model;
 
 public record KnownPerson(
         String canonicalValue,

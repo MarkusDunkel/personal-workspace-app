@@ -1,6 +1,6 @@
-package at.anlagenbauaustria.aiapp.notes.submit;
+package at.anlagenbauaustria.aiapp.pseudonymize;
 
-import at.anlagenbauaustria.aiapp.notes.submit.model.RegistryEntry;
+import at.anlagenbauaustria.aiapp.pseudonymize.model.RegistryEntry;
 import com.fasterxml.jackson.dataformat.csv.CsvMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvSchema;
 
@@ -17,8 +17,10 @@ import java.util.Map;
  * Datei nur, um dem Nutzer bekannte Personen anzuzeigen - geschrieben wird
  * sie ausschliesslich von "python -m pipelines.pseudonymize
  * update-register" (siehe ai-vault/CLAUDE.md, "Boundary is the user's").
+ * Gemeinsam genutzt von jedem Pseudonymisierungs-Flow (notes, azureboards,
+ * ...), da das Registerformat identisch ist.
  */
-final class PersonRegisterCsv {
+public final class PersonRegisterCsv {
 
     private static final CsvMapper MAPPER = new CsvMapper();
 
@@ -34,7 +36,7 @@ final class PersonRegisterCsv {
     private PersonRegisterCsv() {
     }
 
-    static List<RegistryEntry> read(Path path) {
+    public static List<RegistryEntry> read(Path path) {
         if (!Files.exists(path)) {
             return List.of();
         }

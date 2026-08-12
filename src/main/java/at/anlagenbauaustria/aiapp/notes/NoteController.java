@@ -6,7 +6,10 @@ import at.anlagenbauaustria.aiapp.notes.model.NoteTableDefinition;
 import at.anlagenbauaustria.aiapp.notes.model.NoteTableRow;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * REST-API fuer die Notes-UI: eine gemeinsame Tabelle, deren Zeilen per
@@ -16,6 +19,8 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/notes")
 public class NoteController {
+
+    private static final String STATUS_ACTIVE = "aktiv";
 
     private final NoteRegistry registry;
     private final NoteDataService dataService;
@@ -41,8 +46,35 @@ public class NoteController {
     @PutMapping("/{tableId}")
     public void put(@PathVariable String tableId, @RequestBody NoteTableData body) {
         registry.get(tableId).orElseThrow(() -> new UnknownNoteTableException(tableId));
-        dataService.write(tableId, body);
-        registerNewListValues(body);
+        NoteTableData withStatus = markTasksActive(body);
+        dataService.write(tableId, withStatus);
+        registerNewListValues(withStatus);
+    }
+
+    /**
+     * Setzt status="aktiv" bereits beim Speichern jeder typ="Aufgabe"-Zeile
+     * (idempotent per putIfAbsent), statt erst nachtraeglich beim
+     * Pseudonymisierungs-Absenden (siehe NoteSubmitService). Wuerde der
+     * Status erst dort gesetzt, wuerde notes.json zwischen Scan und Apply
+     * neu geschrieben und dabei die vom Scan gemessenen Zeichen-Positionen
+     * verschieben - das ist Voraussetzung fuer die positionsgenaue
+     * Pseudonymisierung ("nur diese Stelle"). status hat fuer den
+     * Pseudonymisierungsvorgang selbst keine Bedeutung, dient nur einem
+     * spaeteren Kanban-Board auf Basis von 2_ai-ready; andere Typen (z.B.
+     * "Info") bleiben unangetastet.
+     */
+    private NoteTableData markTasksActive(NoteTableData data) {
+        List<NoteTableRow> updated = new ArrayList<>();
+        for (NoteTableRow row : data.rows()) {
+            if (!"Aufgabe".equals(row.cells().get("typ"))) {
+                updated.add(row);
+                continue;
+            }
+            Map<String, String> cells = new LinkedHashMap<>(row.cells());
+            cells.putIfAbsent("status", STATUS_ACTIVE);
+            updated.add(new NoteTableRow(row.id(), cells, row.order()));
+        }
+        return new NoteTableData(data.tableId(), updated);
     }
 
     /**
