@@ -1,6 +1,6 @@
 import type { KnownPerson, SubmitCandidate, SubmitDecision } from './submitTypes';
 
-export type AzureBoardsCategory = 'main' | 'technical';
+export type AzureBoardsCategory = 'main' | 'technical' | 'costs';
 
 export interface IngestResult {
   success: boolean;

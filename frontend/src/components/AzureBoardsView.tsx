@@ -8,13 +8,10 @@ import { SubmitProgressModal } from './submit/SubmitProgressModal';
 const AVAILABLE_CATEGORIES: { id: AzureBoardsCategory; label: string }[] = [
   { id: 'main', label: 'Main' },
   { id: 'technical', label: 'Technical' },
+  { id: 'costs', label: 'Costs' },
 ];
 
 export function AzureBoardsView() {
-  // Nur main/technical haben eine JSON-Pipeline in ai-vault (siehe
-  // ai-vault/CLAUDE.md: "costs has no json/ counterpart") - Costs wird
-  // bewusst nur als deaktivierte Kachel angezeigt, nie ausgewaehlt.
-  //
   // Einfachauswahl statt Mehrfachauswahl: mit dem Scan+Review-Schritt
   // (neue Namen muessen einzeln bestaetigt werden, siehe useAzureBoardsIngest)
   // wuerde eine Mehrfachauswahl mehrere Review-Dialoge nacheinander/
@@ -52,12 +49,6 @@ export function AzureBoardsView() {
                 ))}
               </select>
             </label>
-            <span
-              className="azb-category-tile disabled"
-              title="Nur CSV in ai-vault verfügbar — noch keine JSON-Pipeline"
-            >
-              Costs (nur CSV)
-            </span>
           </div>
           <button
             type="button"
