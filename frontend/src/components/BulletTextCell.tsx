@@ -74,8 +74,21 @@ export const BulletTextCell = forwardRef<CellHandle, CellProps>(function BulletT
     // aus dem Inhalt zu berechnen, egal ob die Zeile vorher zu hoch oder zu
     // niedrig war - das verhindert das beobachtete "einzeilige Zellen werden
     // nach der Aktivierung faelschlich doppelt so hoch".
+    //
+    // Das kurzzeitige Kollabieren auf 0px verkleinert dabei die
+    // Gesamthoehe von .data-grid-scroll, wodurch der Browser dessen
+    // scrollTop sofort auf den neuen (kleineren) Maximalwert klemmt - beim
+    // anschliessenden Vergroessern wird diese Position nicht von selbst
+    // wiederhergestellt. Sichtbar als Scroll-Sprung nach oben bei jedem
+    // Tastendruck/Klick, besonders in der letzten Zeile. Daher scrollTop
+    // hier explizit sichern und zurücksetzen.
+    const scrollParent = el.closest<HTMLElement>('.data-grid-scroll');
+    const prevScrollTop = scrollParent?.scrollTop;
     el.style.height = '0px';
     el.style.height = `${el.scrollHeight}px`;
+    if (scrollParent && prevScrollTop !== undefined) {
+      scrollParent.scrollTop = prevScrollTop;
+    }
   };
 
   useLayoutEffect(() => {

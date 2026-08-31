@@ -44,6 +44,35 @@ export function DataGrid({
   // draft-State jeder Zelle beim Verlassen ohne echten DOM-blur verloren.
   const editingCellRef = useRef<CellHandle | null>(null);
   const commitEditingCell = () => editingCellRef.current?.commitPending();
+
+  // Haelt die scrollTop-Position von .data-grid-scroll fest, direkt bevor
+  // ein Klick/Doppelklick einen Fokus- oder Editier-Wechsel ausloest. Ein
+  // solcher Wechsel laesst React die betroffene Zelle remounten (key
+  // "idle" -> "editing-N" oder umgekehrt, siehe Cell key unten) - zwischen
+  // dem Entfernen der alten Zellinstanz und dem Einfuegen der neuen aendert
+  // sich kurzzeitig deren Layout-Hoehe (z.B. Anzeige-<div> vs. Textarea),
+  // was die Gesamthoehe von .data-grid-scroll veraendert. Steht der
+  // Container zu diesem Zeitpunkt bereits nahe seinem Scroll-Maximum,
+  // klemmt der Browser scrollTop sofort auf das neue (kleinere) Maximum -
+  // eine anschliessende Vergroesserung (z.B. durch BulletTextCells eigenes
+  // resize()) stellt diese Position NICHT von selbst wieder her. Sichtbar
+  // als Scroll-Sprung nach oben bei jedem Klick/Tastendruck, besonders in
+  // der letzten Zeile. Der Wert wird hier - synchron vor dem Rerender -
+  // gesichert und im useLayoutEffect unten, NACH dem vollstaendigen
+  // Remount, zurueckgesetzt.
+  const pendingScrollTopRef = useRef<number | null>(null);
+  const saveScrollTop = () => {
+    const scrollParent = gridRootRef.current?.closest<HTMLElement>('.data-grid-scroll');
+    if (scrollParent) pendingScrollTopRef.current = scrollParent.scrollTop;
+  };
+
+  useLayoutEffect(() => {
+    if (pendingScrollTopRef.current === null) return;
+    const scrollParent = gridRootRef.current?.closest<HTMLElement>('.data-grid-scroll');
+    if (scrollParent) scrollParent.scrollTop = pendingScrollTopRef.current;
+    pendingScrollTopRef.current = null;
+  });
+
   const [dragRowId, setDragRowId] = useState<string | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [magicLoading, setMagicLoading] = useState<Set<string>>(new Set());
@@ -177,6 +206,18 @@ export function DataGrid({
       // funktionierenden editing-Zustand (siehe TypCell, DatePickerCell,
       // AutocompleteCell), der nur nie automatisch ausgeloest wurde.
       autoEditedPosRef.current = posKey;
+      // Dieser automatische startEditing() loest denselben Zell-Remount
+      // (Anzeige-<div> -> Textarea) aus wie ein manueller Doppelklick -
+      // scrollTop muss daher genauso davor gesichert werden, siehe
+      // Kommentar bei pendingScrollTopRef oben. Ohne diesen Aufruf hier
+      // blieb GENAU dieser Remount ungeschuetzt: der vorherige
+      // Fokus-Klick (onMouseDown) hatte bereits gesichert UND der
+      // useLayoutEffect unten bereits wiederhergestellt (er laeuft nach
+      // JEDEM Render, auch dem reinen Fokus-Render), BEVOR dieser Effect
+      // hier ueberhaupt startEditing() aufruft - der eigentliche,
+      // sichtbare Sprung passierte also erst in diesem zweiten,
+      // separaten Commit.
+      saveScrollTop();
       nav.startEditing();
     }
     // rows als Dependency aus demselben Grund wie im Effect oben - siehe
@@ -293,6 +334,7 @@ export function DataGrid({
                       // etwas anderes bewirkt). Ohne diesen Aufruf ging der
                       // noch nicht committete draft-Text der Zelle beim Klick
                       // in eine andere Zelle komplett verloren.
+                      saveScrollTop();
                       commitEditingCell();
                       nav.setFocused({ row: rowIndex, col: colIndex });
                     }}
@@ -300,6 +342,7 @@ export function DataGrid({
                       focusCell(rowIndex, colIndex);
                     }}
                     onDoubleClick={() => {
+                      saveScrollTop();
                       nav.setFocused({ row: rowIndex, col: colIndex });
                       nav.startEditing();
                     }}
