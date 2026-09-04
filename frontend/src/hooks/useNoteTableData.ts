@@ -1,9 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getTable, putTable } from '../api/notesApi';
-import type { TableRow } from '../api/noteTypes';
+import { ArchiveSaveRejectedError, getTable, putTable } from '../api/notesApi';
+import type { TableData, TableRow } from '../api/noteTypes';
 import { useDebouncedCallback } from './useDebouncedCallback';
 
-export function useNoteTableData(tableId: string, reloadToken: number = 0) {
+/**
+ * Erlaubt es, dieselbe Lade-/Speicherlogik gegen eine andere Quelle laufen zu
+ * lassen (siehe ArchiveNoteSection: abgelegte Notizen in 2_ai-ready). Bewusst
+ * parametrisiert statt kopiert - dieser Hook traegt mehrere teuer erarbeitete
+ * Bugfixes (Updater-Vertrag von mutateRows, Debounce plus Fallback-Intervall,
+ * dirtyRef), die in einer Kopie stillschweigend auseinanderlaufen wuerden.
+ */
+export interface NoteTableIo {
+  load: () => Promise<TableData>;
+  save: (data: TableData) => Promise<void>;
+}
+
+export function useNoteTableData(tableId: string, reloadToken: number = 0, io?: NoteTableIo) {
   const [rows, setRowsState] = useState<TableRow[]>([]);
   const [saveStatus, setSaveStatus] = useState('Bereit');
 
@@ -11,14 +23,25 @@ export function useNoteTableData(tableId: string, reloadToken: number = 0) {
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
 
+  const ioRef = useRef(io);
+  ioRef.current = io;
+
   const doSave = useCallback(async () => {
     if (!dirtyRef.current) return;
     setSaveStatus('speichert…');
+    const data: TableData = { tableId, rows: rowsRef.current };
     try {
-      await putTable(tableId, { tableId, rows: rowsRef.current });
+      await (ioRef.current ? ioRef.current.save(data) : putTable(tableId, data));
       dirtyRef.current = false;
       setSaveStatus('Gespeichert ' + new Date().toLocaleTimeString());
     } catch (err) {
+      if (err instanceof ArchiveSaveRejectedError) {
+        // Die Aenderung bleibt absichtlich "dirty": sie steht noch in der
+        // Oberflaeche, wurde aber nicht geschrieben. Sobald der Name
+        // korrigiert ist, greift der naechste Speicherversuch.
+        setSaveStatus(err.message);
+        return;
+      }
       setSaveStatus(
         err instanceof TypeError ? 'Fehler beim Speichern (offline?)' : 'Fehler beim Speichern',
       );
@@ -112,7 +135,7 @@ export function useNoteTableData(tableId: string, reloadToken: number = 0) {
   }, [doSave]);
 
   useEffect(() => {
-    getTable(tableId)
+    (ioRef.current ? ioRef.current.load() : getTable(tableId))
       .then((data) => {
         setRowsState([...data.rows].sort((a, b) => a.order - b.order));
         dirtyRef.current = false;

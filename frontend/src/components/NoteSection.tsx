@@ -13,6 +13,7 @@ interface NoteSectionProps {
   currentMeeting: string;
   reloadToken: number;
   onStatusChange: (status: { label: string; saveStatus: string; rowCount: number }) => void;
+  onLeaveBottom?: () => void;
 }
 
 export function NoteSection({
@@ -24,6 +25,7 @@ export function NoteSection({
   currentMeeting,
   reloadToken,
   onStatusChange,
+  onLeaveBottom,
 }: NoteSectionProps) {
   const table = useNoteTableData(definition.id, reloadToken);
   const [focusedRow, setFocusedRow] = useState<TableRow | null>(null);
@@ -88,6 +90,7 @@ export function NoteSection({
           onReorderRow={table.reorderRow}
           onFocusedRowChange={setFocusedRow}
           contacts={contacts}
+          onLeaveBottom={onLeaveBottom}
         />
       </div>
     </section>

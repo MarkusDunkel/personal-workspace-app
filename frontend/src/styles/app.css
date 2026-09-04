@@ -119,12 +119,16 @@ body {
     width: 1px;
 }
 
+/* EINE durchgehende Scrollfläche fuer laufende und abgelegte Notizen: die
+   Seite soll sich wie ein einziges Grid mit Zwischenueberschriften anfuehlen.
+   Frueher scrollte .data-grid-scroll eigenstaendig - dadurch endete die
+   Scrollbar an der laufenden Tabelle und die alten Notizen darunter waren
+   nur ueber einen zweiten, getrennten Scrollbereich erreichbar. */
 .tables-wrap {
     flex: 1;
     padding: 0 1rem 1rem;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    display: block;
+    overflow-y: auto;
 }
 
 .loading-hint {
@@ -132,16 +136,13 @@ body {
 }
 
 .table-section {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
     padding: 0 0.5rem;
-    overflow: hidden;
 }
 
+/* Kein eigener Scrollbereich mehr - die Hoehe folgt dem Inhalt, gescrollt
+   wird ausschliesslich in .tables-wrap. */
 .data-grid-scroll {
-    flex: 1;
-    overflow-y: auto;
+    overflow: visible;
 }
 
 .data-grid {
@@ -899,4 +900,50 @@ body {
     background: color-mix(in srgb, var(--fg) 4%, transparent);
     padding: 0.5rem;
     border-radius: 0.3rem;
+}
+
+/* Bereits abgesendete Notizen (2_ai-ready) unterhalb der laufenden Tabelle */
+
+.archive-details {
+    margin: 0 0.5rem;
+    border-top: 1px solid var(--border);
+}
+
+.archive-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    cursor: pointer;
+    padding: 0.4rem 0.2rem;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-align: left;
+}
+
+.archive-summary:hover {
+    color: var(--fg);
+}
+
+.archive-summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.archive-caret {
+    font-size: 0.7rem;
+}
+
+.archive-section {
+    padding-bottom: 0.5rem;
+}
+
+.archive-hint,
+.archive-status {
+    margin: 0.2rem 0.2rem 0.4rem;
+    font-size: 0.7rem;
+    color: var(--muted);
 }

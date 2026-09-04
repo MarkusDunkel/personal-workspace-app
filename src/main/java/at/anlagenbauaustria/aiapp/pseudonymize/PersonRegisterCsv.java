@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -51,12 +52,23 @@ public final class PersonRegisterCsv {
                 entries.add(new RegistryEntry(
                         raw.getOrDefault("canonical_value", "").strip(),
                         raw.getOrDefault("pseudonym", "").strip(),
-                        raw.getOrDefault("type", "").strip()
+                        raw.getOrDefault("type", "").strip(),
+                        splitAliases(raw.get("aliases"))
                 ));
             }
             return entries;
         } catch (IOException e) {
             throw new UncheckedIOException("Konnte person_register.csv nicht lesen: " + path, e);
         }
+    }
+
+    private static List<String> splitAliases(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(raw.split(";"))
+                .map(String::strip)
+                .filter(alias -> !alias.isEmpty())
+                .toList();
     }
 }

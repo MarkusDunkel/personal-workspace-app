@@ -7,7 +7,18 @@ export interface GridPosition {
 }
 
 export interface UseGridNavigationOptions {
-  onRequestAddRow: () => void;
+  /**
+   * Wird am unteren Tabellenende aufgerufen, wenn dort eine neue Zeile
+   * entstehen soll. Gibt false zurueck, wenn keine angelegt wurde (leere
+   * letzte Zeile oder Tabelle ohne Anlegen-Recht) - dann uebernimmt
+   * onLeaveBottom.
+   */
+  onRequestAddRow: () => boolean;
+  /**
+   * Der Fokus verlaesst die Tabelle nach unten (siehe App.tsx: weiter zur
+   * naechsten Notiz-Sektion).
+   */
+  onLeaveBottom?: () => void;
 }
 
 export interface UseGridNavigation {
@@ -55,6 +66,7 @@ export function useGridNavigation(
   }, []);
 
   const onRequestAddRow = options.onRequestAddRow;
+  const onLeaveBottom = options.onLeaveBottom;
 
   const moveDown = useCallback(() => {
     // onRequestAddRow() darf NICHT innerhalb des setFocused-Updater-
@@ -71,7 +83,21 @@ export function useGridNavigation(
     // aktueller State-Wert im Closure vorliegt, braucht es den
     // Updater-Trick gar nicht - die Bedingung laesst sich direkt daraus
     // berechnen, synchron, bevor setFocused ueberhaupt aufgerufen wird.
-    const needsNewRow = focused.row >= rowCount - 1;
+    //
+    // NoteSection setzt seinen State innerhalb von onRequestAddRow weiterhin
+    // ausserhalb eines laufenden Updaters - der Aufruf erfolgt jetzt sogar
+    // noch vor setFocused, der beschriebene Fehler kann also nicht auftreten.
+    const atBottom = focused.row >= rowCount - 1;
+    // onRequestAddRow() muss VOR setFocused laufen: nur so ist bekannt, ob es
+    // ueberhaupt eine neue Zeile gibt, auf die der Fokus wandern darf. Wurde
+    // keine angelegt (leere letzte Zeile, oder abgelegte Notiz ohne
+    // Anlegen-Recht), bleibt der Fokus stehen und wird stattdessen an die
+    // naechste Sektion abgegeben.
+    const addedRow = atBottom && onRequestAddRow();
+    if (atBottom && !addedRow) {
+      onLeaveBottom?.();
+      return;
+    }
     setFocused((pos) => {
       if (pos.row >= rowCount - 1) {
         return { row: rowCount, col: 0 };
@@ -79,8 +105,7 @@ export function useGridNavigation(
       const row = pos.row + 1;
       return { row, col: Math.min(pos.col, getColCountForRow(row) - 1) };
     });
-    if (needsNewRow) onRequestAddRow();
-  }, [focused, rowCount, onRequestAddRow, getColCountForRow]);
+  }, [focused, rowCount, onRequestAddRow, onLeaveBottom, getColCountForRow]);
 
   const moveUp = useCallback(() => {
     setFocused((pos) => {
@@ -117,7 +142,15 @@ export function useGridNavigation(
       // des setFocused-Updater-Callbacks (der laeuft asynchron und lieferte
       // hier denselben Bug wie in moveDown: onRequestAddRow() wurde nie
       // erreicht).
-      const needsNewRow = delta > 0 && focused.col + delta >= getColCountForRow(focused.row) && focused.row >= rowCount - 1;
+      const atBottom = delta > 0
+          && focused.col + delta >= getColCountForRow(focused.row)
+          && focused.row >= rowCount - 1;
+      // Siehe moveDown: erst anlegen, dann fokussieren.
+      const addedRow = atBottom && onRequestAddRow();
+      if (atBottom && !addedRow) {
+        onLeaveBottom?.();
+        return;
+      }
       setFocused((pos) => {
         let { row, col } = pos;
         col += delta;
@@ -134,9 +167,8 @@ export function useGridNavigation(
         }
         return { row, col };
       });
-      if (needsNewRow) onRequestAddRow();
     },
-    [focused, getColCountForRow, rowCount, onRequestAddRow],
+    [focused, getColCountForRow, rowCount, onRequestAddRow, onLeaveBottom],
   );
 
   const handleKeyDown = useCallback(

@@ -11,11 +11,18 @@ interface DataGridProps {
   definition: TableDefinition;
   rows: TableRow[];
   onCellCommit: (rowId: string, columnId: string, value: string | null) => void;
-  onAddRow: () => void;
+  onAddRow?: () => void;
   onDeleteRow: (rowId: string) => void;
   onReorderRow: (rowId: string, newIndex: number) => void;
   onFocusedRowChange?: (row: TableRow | null) => void;
   contacts: string[];
+  /**
+   * Abgelegte Notizen (2_ai-ready) sind bearbeitbar, aber dort entstehen keine
+   * neuen Zeilen - neue Eintraege gehoeren immer in die laufende Notiz.
+   */
+  canAddRows?: boolean;
+  /** Der Fokus verlaesst die Tabelle nach unten (siehe App.tsx). */
+  onLeaveBottom?: () => void;
 }
 
 function columnsForRow(definition: TableDefinition, row: TableRow | undefined): ColumnDefinition[] {
@@ -33,6 +40,8 @@ export function DataGrid({
   onReorderRow,
   onFocusedRowChange,
   contacts,
+  canAddRows = true,
+  onLeaveBottom,
 }: DataGridProps) {
   const cellRefs = useRef<Map<string, HTMLDivElement | HTMLButtonElement>>(new Map());
   const gridRootRef = useRef<HTMLDivElement>(null);
@@ -45,13 +54,14 @@ export function DataGrid({
   const editingCellRef = useRef<CellHandle | null>(null);
   const commitEditingCell = () => editingCellRef.current?.commitPending();
 
-  // Haelt die scrollTop-Position von .data-grid-scroll fest, direkt bevor
-  // ein Klick/Doppelklick einen Fokus- oder Editier-Wechsel ausloest. Ein
-  // solcher Wechsel laesst React die betroffene Zelle remounten (key
+  // Haelt die scrollTop-Position von .tables-wrap fest (dem einen,
+  // durchgehenden Scrollbereich der Notizansicht - siehe app.css), direkt
+  // bevor ein Klick/Doppelklick einen Fokus- oder Editier-Wechsel ausloest.
+  // Ein solcher Wechsel laesst React die betroffene Zelle remounten (key
   // "idle" -> "editing-N" oder umgekehrt, siehe Cell key unten) - zwischen
   // dem Entfernen der alten Zellinstanz und dem Einfuegen der neuen aendert
   // sich kurzzeitig deren Layout-Hoehe (z.B. Anzeige-<div> vs. Textarea),
-  // was die Gesamthoehe von .data-grid-scroll veraendert. Steht der
+  // was die Gesamthoehe des Scrollbereichs veraendert. Steht der
   // Container zu diesem Zeitpunkt bereits nahe seinem Scroll-Maximum,
   // klemmt der Browser scrollTop sofort auf das neue (kleinere) Maximum -
   // eine anschliessende Vergroesserung (z.B. durch BulletTextCells eigenes
@@ -62,13 +72,13 @@ export function DataGrid({
   // Remount, zurueckgesetzt.
   const pendingScrollTopRef = useRef<number | null>(null);
   const saveScrollTop = () => {
-    const scrollParent = gridRootRef.current?.closest<HTMLElement>('.data-grid-scroll');
+    const scrollParent = gridRootRef.current?.closest<HTMLElement>('.tables-wrap');
     if (scrollParent) pendingScrollTopRef.current = scrollParent.scrollTop;
   };
 
   useLayoutEffect(() => {
     if (pendingScrollTopRef.current === null) return;
-    const scrollParent = gridRootRef.current?.closest<HTMLElement>('.data-grid-scroll');
+    const scrollParent = gridRootRef.current?.closest<HTMLElement>('.tables-wrap');
     if (scrollParent) scrollParent.scrollTop = pendingScrollTopRef.current;
     pendingScrollTopRef.current = null;
   });
@@ -81,8 +91,33 @@ export function DataGrid({
 
   const getColCountForRow = (row: number) => columnsForRow(definition, rows[row]).length;
 
+  const lastRow = rows[rows.length - 1];
+  // Nur die Inhalt-Zelle entscheidet, ob die letzte Zeile "leer" ist:
+  // addRowWithDefaultTyp belegt Typ/Datum/Personen automatisch vor (siehe
+  // NoteSection), mit "alle Zellen leer" waere eine Zeile also praktisch nie
+  // leer und der Sprung ins Archiv nie erreichbar.
+  const lastRowIsEmpty = rows.length > 0 && !lastRow.cells.inhalt?.trim();
+
+  // Der Fokus liegt ausserhalb dieses Grids, auf einer Notiz-Kopfzeile.
+  // Solange das gilt, darf keine Zelle als fokussiert gelten: sonst behaelt
+  // die verlassene Zelle ihren Rahmen, waehrend der echte DOM-Fokus schon in
+  // der naechsten Sektion sitzt (Symptom: zwei sichtbare Fokusse,
+  // Pfeiltasten wirkungslos). Gesetzt wird das aus zwei Richtungen - hier
+  // beim eigenen Sprung (verhindert ein kurzes Aufblitzen des alten
+  // Rahmens) und im focusin-Handler unten, der auch Spruenge ANDERER Grids
+  // sieht.
+  const [handedOffFocus, setHandedOffFocus] = useState(false);
+
   const nav = useGridNavigation(rows.length, getColCountForRow, {
-    onRequestAddRow: onAddRow,
+    onRequestAddRow: () => {
+      if (!canAddRows || !onAddRow || lastRowIsEmpty) return false;
+      onAddRow();
+      return true;
+    },
+    onLeaveBottom: onLeaveBottom && (() => {
+      setHandedOffFocus(true);
+      onLeaveBottom();
+    }),
   });
 
   const focusCell = (row: number, col: number) => {
@@ -142,7 +177,20 @@ export function DataGrid({
       // faelschlich als "nicht in cellRefs", da deren ref-Callback zu diesem
       // Zeitpunkt noch nicht (erneut) gelaufen war. Der Grid-Root-Container
       // wird dagegen nur einmal gemountet und bleibt stabil.
-      focusInGridRef.current = target instanceof Node && !!gridRootRef.current?.contains(target);
+      const insideGrid = target instanceof Node && !!gridRootRef.current?.contains(target);
+      focusInGridRef.current = insideGrid;
+      if (insideGrid) {
+        // Kommt der Fokus zurueck (Klick in eine Zelle, Tab von oben), gilt
+        // die Abgabe nach unten nicht mehr - ab dann fuehrt das Grid wieder.
+        setHandedOffFocus(false);
+      } else if (target instanceof Element && target.closest('.archive-summary')) {
+        // Der Fokus sitzt auf einer Notiz-Kopfzeile, also in KEINEM Grid.
+        // Jedes Grid muss seine Fokusmarkierung abgeben - nicht nur das, das
+        // den Sprung ausgeloest hat: sprang der Fokus aus einer Archiv-Notiz
+        // weiter, behielt die laufende Tabelle sonst ihren alten Rahmen und
+        // es waren wieder zwei Fokusse sichtbar.
+        setHandedOffFocus(true);
+      }
     };
 
     document.addEventListener('focusin', handleFocusIn);
@@ -153,6 +201,10 @@ export function DataGrid({
 
   useLayoutEffect(() => {
     if (nav.editing) return;
+    // Nach der Fokusabgabe nach unten darf dieser Effect den Fokus NICHT
+    // zurueckholen - er wuerde ihn der naechsten Sektion sofort wieder
+    // entreissen.
+    if (handedOffFocus) return;
     // Nur fokussieren, wenn der Fokus zuletzt tatsaechlich im Grid lag -
     // sonst scrollt element.focus() den Browser-Viewport zu nav.focused
     // (Default {row:0, col:0}) und reisst die Ansicht an den Tabellenanfang,
@@ -190,6 +242,10 @@ export function DataGrid({
 
   useEffect(() => {
     if (nav.editing) return;
+    // Kein Auto-Editiermodus, wenn der Fokus das Grid verlassen hat: sonst
+    // mountet die verlassene Zelle ein Eingabefeld, das den DOM-Fokus der
+    // naechsten Sektion wieder wegnimmt.
+    if (handedOffFocus) return;
     const posKey = `${nav.focused.row}:${nav.focused.col}`;
     if (autoEditedPosRef.current === posKey) return;
     const column = columnsForRow(definition, rows[nav.focused.row])[nav.focused.col];
@@ -251,14 +307,14 @@ export function DataGrid({
           role="row"
           tabIndex={0}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && canAddRows && onAddRow) {
               e.preventDefault();
               onAddRow();
             }
           }}
-          onClick={onAddRow}
+          onClick={canAddRows ? onAddRow : undefined}
         >
-          Noch keine Einträge – Eingabe zum Hinzufügen
+          {canAddRows ? 'Noch keine Einträge – Eingabe zum Hinzufügen' : 'Keine Einträge'}
         </div>
       ) : (
         rows.map((row, rowIndex) => {
@@ -299,7 +355,8 @@ export function DataGrid({
                 </span>
               </div>
               {columns.map((col, colIndex) => {
-                const isFocused = nav.focused.row === rowIndex && nav.focused.col === colIndex;
+                const isFocused = !handedOffFocus
+                    && nav.focused.row === rowIndex && nav.focused.col === colIndex;
                 const isEditing = isFocused && nav.editing;
                 return (
                   <div
@@ -309,7 +366,13 @@ export function DataGrid({
                       if (el) cellRefs.current.set(`${rowIndex}:${colIndex}`, el);
                       else cellRefs.current.delete(`${rowIndex}:${colIndex}`);
                     }}
-                    tabIndex={isFocused ? 0 : -1}
+                    // Nach der Fokusabgabe behaelt die gemerkte Position den
+                    // Tab-Einstieg (ohne den Fokusrahmen), damit das Grid per
+                    // Tab wieder erreichbar bleibt - waere ueberall -1, waere
+                    // die Tabelle aus der Tab-Reihenfolge verschwunden.
+                    tabIndex={
+                      nav.focused.row === rowIndex && nav.focused.col === colIndex ? 0 : -1
+                    }
                     className={`data-grid-cell data-grid-cell--${col.id}${isFocused ? ' focused' : ''}${isEditing ? ' editing' : ''}`}
                     onMouseDown={() => {
                       // Bewusst hier statt in onClick: mousedown feuert VOR

@@ -82,7 +82,10 @@ export const BulletTextCell = forwardRef<CellHandle, CellProps>(function BulletT
     // wiederhergestellt. Sichtbar als Scroll-Sprung nach oben bei jedem
     // Tastendruck/Klick, besonders in der letzten Zeile. Daher scrollTop
     // hier explizit sichern und zurücksetzen.
-    const scrollParent = el.closest<HTMLElement>('.data-grid-scroll');
+    // .tables-wrap ist der eine, durchgehende Scrollbereich der Notizansicht
+    // (siehe app.css) - .data-grid-scroll scrollt selbst nicht mehr, sein
+    // scrollTop waere hier also konstant 0 und der Fix wirkungslos.
+    const scrollParent = el.closest<HTMLElement>('.tables-wrap');
     const prevScrollTop = scrollParent?.scrollTop;
     el.style.height = '0px';
     el.style.height = `${el.scrollHeight}px`;

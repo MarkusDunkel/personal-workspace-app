@@ -29,3 +29,10 @@ export interface TableData {
   tableId: string;
   rows: TableRow[];
 }
+
+// Mirrors at.anlagenbauaustria.aiapp.notes.archive.model.ArchiveFileInfo
+export interface ArchiveFileInfo {
+  fileName: string;
+  timestamp: string;
+  rowCount: number;
+}
