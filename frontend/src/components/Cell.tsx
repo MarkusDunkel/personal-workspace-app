@@ -151,6 +151,12 @@ export const TextCell = forwardRef<CellHandle, CellProps>(function TextCell(
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => commitOnce(() => onCommit(draft === '' ? null : draft))}
       onKeyDown={(e) => {
+        // Strg+Enter gehoert dem Grid ("neue Zeile anlegen") - hier
+        // durchlassen, damit es das aeussere onKeyDown und damit
+        // useGridNavigation erreicht.
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          return;
+        }
         if (e.key === 'Enter') {
           e.preventDefault();
           e.stopPropagation();

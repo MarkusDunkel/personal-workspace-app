@@ -8,17 +8,20 @@ export interface GridPosition {
 
 export interface UseGridNavigationOptions {
   /**
-   * Wird am unteren Tabellenende aufgerufen, wenn dort eine neue Zeile
-   * entstehen soll. Gibt false zurueck, wenn keine angelegt wurde (leere
-   * letzte Zeile oder Tabelle ohne Anlegen-Recht) - dann uebernimmt
-   * onLeaveBottom.
+   * Legt eine neue Zeile an (Strg+Enter). Gibt true zurueck, wenn eine
+   * entstanden ist - dann wandert der Fokus dorthin.
+   *
+   * Bewusst ein ausdrueckliches Tastenkuerzel und nicht mehr an das
+   * Tabellenende gebunden: seit alle Notizen in EINER Liste stehen, neueste
+   * zuerst, stehen unten die AELTESTEN Zeilen - dort eine neue anzulegen
+   * waere sinnlos. Die neue Zeile erscheint automatisch oben, weil die
+   * Anzeige nach created absteigend sortiert.
+   *
+   * Strg+Enter und nicht Shift+Enter: Shift+Enter ist als moveUp() belegt
+   * (siehe handleKeyDown), das zu ueberschreiben wuerde bestehende
+   * Navigation brechen.
    */
-  onRequestAddRow: () => boolean;
-  /**
-   * Der Fokus verlaesst die Tabelle nach unten (siehe App.tsx: weiter zur
-   * naechsten Notiz-Sektion).
-   */
-  onLeaveBottom?: () => void;
+  onInsertRow?: () => boolean;
 }
 
 export interface UseGridNavigation {
@@ -33,6 +36,8 @@ export interface UseGridNavigation {
   moveDown: () => void;
   moveHorizontal: (delta: 1 | -1) => void;
   moveTab: (delta: 1 | -1) => void;
+  /** Legt oben eine Zeile an und fokussiert sie (Strg+Enter). */
+  insertRow: () => void;
   handleKeyDown: (e: KeyboardEvent) => void;
 }
 
@@ -65,47 +70,44 @@ export function useGridNavigation(
     setInitialChar(undefined);
   }, []);
 
-  const onRequestAddRow = options.onRequestAddRow;
-  const onLeaveBottom = options.onLeaveBottom;
+  const onInsertRow = options.onInsertRow;
+
+  /**
+   * Legt eine Zeile an und setzt den Fokus darauf.
+   *
+   * onInsertRow() laeuft synchron aus dem Closure heraus und VOR setFocused -
+   * nie innerhalb eines Updater-Callbacks. Der Grund ist zweimal teuer
+   * gelernt worden: (1) es loest in NoteSection ein setState in einer
+   * ANDEREN Komponente aus, waehrend React noch mitten in der Berechnung des
+   * Updaters steckt ("Cannot update a component while rendering a different
+   * component"); (2) ein Versuch, das per Flag INNERHALB des Updaters zu
+   * setzen und ausserhalb zu pruefen, ging von synchroner Ausfuehrung des
+   * Updaters aus - unter Concurrent Rendering laeuft er erst spaeter, die
+   * Pruefung sah immer den Ausgangswert false und die Zeile entstand nie.
+   *
+   * Fokusziel ist {0,0}: die neue Zeile traegt created = jetzt und steht
+   * damit in der nach created absteigend sortierten Anzeige an Position 0.
+   * Der Fokus-Reparatur-Effect in DataGrid holt den DOM-Fokus nach, sobald
+   * die Zeile tatsaechlich in rows erscheint (rows steht dort in den
+   * Dependencies).
+   */
+  const insertRow = useCallback(() => {
+    if (!onInsertRow) return;
+    if (!onInsertRow()) return;
+    setFocused({ row: 0, col: 0 });
+  }, [onInsertRow]);
 
   const moveDown = useCallback(() => {
-    // onRequestAddRow() darf NICHT innerhalb des setFocused-Updater-
-    // Callbacks aufgerufen werden: es loest in NoteSection ein setState in
-    // einer ANDEREN Komponente aus, waehrend React noch mitten in der
-    // Berechnung dieses Updaters steckt ("Cannot update a component while
-    // rendering a different component"). Ein frueherer Versuch, das per
-    // Flag INNERHALB des Updaters zu setzen und ausserhalb zu pruefen, ging
-    // von einer synchronen Ausfuehrung des Updaters aus - der Updater laeuft
-    // aber tatsaechlich erst spaeter (Concurrent Rendering), wodurch die
-    // Pruefung immer den Ausgangswert false sah und onRequestAddRow() nie
-    // aufgerufen wurde (Symptom: Enter/Tab am Tabellenende verliess die
-    // Zelle, legte aber keine neue Zeile an). Da focused hier bereits als
-    // aktueller State-Wert im Closure vorliegt, braucht es den
-    // Updater-Trick gar nicht - die Bedingung laesst sich direkt daraus
-    // berechnen, synchron, bevor setFocused ueberhaupt aufgerufen wird.
-    //
-    // NoteSection setzt seinen State innerhalb von onRequestAddRow weiterhin
-    // ausserhalb eines laufenden Updaters - der Aufruf erfolgt jetzt sogar
-    // noch vor setFocused, der beschriebene Fehler kann also nicht auftreten.
-    const atBottom = focused.row >= rowCount - 1;
-    // onRequestAddRow() muss VOR setFocused laufen: nur so ist bekannt, ob es
-    // ueberhaupt eine neue Zeile gibt, auf die der Fokus wandern darf. Wurde
-    // keine angelegt (leere letzte Zeile, oder abgelegte Notiz ohne
-    // Anlegen-Recht), bleibt der Fokus stehen und wird stattdessen an die
-    // naechste Sektion abgegeben.
-    const addedRow = atBottom && onRequestAddRow();
-    if (atBottom && !addedRow) {
-      onLeaveBottom?.();
-      return;
-    }
     setFocused((pos) => {
-      if (pos.row >= rowCount - 1) {
-        return { row: rowCount, col: 0 };
-      }
+      // Am unteren Ende bleibt der Fokus stehen. Frueher entstand hier eine
+      // neue Zeile bzw. der Fokus wanderte in die naechste Archiv-Sektion -
+      // beides entfaellt: neue Zeilen entstehen nur per Strg+Enter (siehe
+      // insertRow), und es gibt nur noch EIN Grid.
+      if (pos.row >= rowCount - 1) return pos;
       const row = pos.row + 1;
       return { row, col: Math.min(pos.col, getColCountForRow(row) - 1) };
     });
-  }, [focused, rowCount, onRequestAddRow, onLeaveBottom, getColCountForRow]);
+  }, [rowCount, getColCountForRow]);
 
   const moveUp = useCallback(() => {
     setFocused((pos) => {
@@ -137,27 +139,13 @@ export function useGridNavigation(
 
   const moveTab = useCallback(
     (delta: 1 | -1) => {
-      // Siehe ausfuehrlichen Kommentar in moveDown - needsNewRow wird
-      // synchron aus dem aktuellen focused-Wert berechnet, NICHT innerhalb
-      // des setFocused-Updater-Callbacks (der laeuft asynchron und lieferte
-      // hier denselben Bug wie in moveDown: onRequestAddRow() wurde nie
-      // erreicht).
-      const atBottom = delta > 0
-          && focused.col + delta >= getColCountForRow(focused.row)
-          && focused.row >= rowCount - 1;
-      // Siehe moveDown: erst anlegen, dann fokussieren.
-      const addedRow = atBottom && onRequestAddRow();
-      if (atBottom && !addedRow) {
-        onLeaveBottom?.();
-        return;
-      }
       setFocused((pos) => {
         let { row, col } = pos;
         col += delta;
         if (col >= getColCountForRow(row)) {
-          if (row >= rowCount - 1) {
-            return { row: rowCount, col: 0 };
-          }
+          // Hinter der letzten Zelle der letzten Zeile bleibt der Fokus
+          // stehen (siehe moveDown).
+          if (row >= rowCount - 1) return pos;
           row += 1;
           col = 0;
         } else if (col < 0) {
@@ -168,11 +156,28 @@ export function useGridNavigation(
         return { row, col };
       });
     },
-    [focused, getColCountForRow, rowCount, onRequestAddRow, onLeaveBottom],
+    [getColCountForRow, rowCount],
   );
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      // Strg+Enter legt eine neue Zeile an - in JEDEM Zustand, auch mitten
+      // im Editieren. Steht vor der Zustandsunterscheidung, damit das
+      // Kuerzel nicht in einem der beiden Enter-Zweige untergeht.
+      //
+      // Die fuenf Zellkomponenten (BulletTextCell, TypCell,
+      // AutocompleteCell, DatePickerCell, TextCell) lassen Strg+Enter
+      // ausdruecklich zu diesem Handler durch - sie fangen "Enter" sonst
+      // selbst ab und rufen stopPropagation(), das Kuerzel kaeme hier also
+      // nie an (in BulletTextCell haette es stattdessen eine Bullet-Zeile
+      // eingefuegt).
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        if (editing) stopEditing();
+        insertRow();
+        return;
+      }
+
       if (!editing) {
         switch (e.key) {
           case 'ArrowUp':
@@ -249,7 +254,7 @@ export function useGridNavigation(
           return;
       }
     },
-    [editing, moveUp, moveDown, moveHorizontal, moveTab, startEditing, stopEditing],
+    [editing, moveUp, moveDown, moveHorizontal, moveTab, startEditing, stopEditing, insertRow],
   );
 
   return {
@@ -264,6 +269,7 @@ export function useGridNavigation(
     moveDown,
     moveHorizontal,
     moveTab,
+    insertRow,
     handleKeyDown,
   };
 }

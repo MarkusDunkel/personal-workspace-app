@@ -134,7 +134,21 @@ public class NoteArchiveService {
         }
     }
 
-    private NoteTableData readRaw(String fileName) {
+    /**
+     * Liest die Datei OHNE Pseudonym-Aufloesung, also genau so, wie sie auf
+     * der Platte liegt.
+     *
+     * Package-private und nicht public: der einzige legitime Aufrufer
+     * ausserhalb dieser Klasse ist ArchiveNotesMigration, die ausschliesslich
+     * created und tableId nachtraegt. Rohzugriff ist dort richtig und noetig -
+     * der Weg ueber read()/write() wuerde die Personenzellen unnoetig durch
+     * das Register schleifen und beim Schreiben mit
+     * NotPseudonymizableException abbrechen, sobald das Register beim Start
+     * nicht lesbar ist. Ein Leck entsteht dabei nicht: die Migration
+     * schreibt die Personenzellen unveraendert (also pseudonymisiert)
+     * zurueck.
+     */
+    NoteTableData readRaw(String fileName) {
         Path file = resolveExistingFile(fileName);
         try {
             String json = Files.readString(file, StandardCharsets.UTF_8);
@@ -192,7 +206,8 @@ public class NoteArchiveService {
         return matcher.matches() ? matcher.group(1) : fileName;
     }
 
-    private Path resolveExistingFile(String fileName) {
+    /** Package-private aus demselben Grund wie {@link #readRaw(String)}. */
+    Path resolveExistingFile(String fileName) {
         Path file = resolveFile(fileName);
         if (!Files.isRegularFile(file)) {
             throw new UnknownArchiveFileException(fileName);

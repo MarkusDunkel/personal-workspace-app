@@ -117,6 +117,12 @@ export const DatePickerCell = forwardRef<CellHandle, CellProps>(function DatePic
             commitFromDraft();
           }}
           onKeyDown={(e) => {
+            // Strg+Enter gehoert dem Grid ("neue Zeile anlegen") - hier
+            // durchlassen, damit es das aeussere onKeyDown und damit
+            // useGridNavigation erreicht.
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              return;
+            }
             if (e.key === 'Escape') {
               e.stopPropagation();
               onCancelEdit();

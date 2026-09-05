@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { DragEvent, KeyboardEvent } from 'react';
+import type { KeyboardEvent } from 'react';
 import type { ColumnDefinition, TableDefinition, TableRow } from '../api/noteTypes';
 import { useGridNavigation } from '../hooks/useGridNavigation';
 import { Cell } from './Cell';
@@ -9,20 +9,31 @@ import { toDisplayText, fromDisplayText } from '../utils/bulletText';
 
 interface DataGridProps {
   definition: TableDefinition;
+  /**
+   * Die SICHTBARE, sortierte und gefilterte Zeilenliste (siehe
+   * useNoteViewFilters). Das Grid adressiert Zeilen weiterhin ueber ihren
+   * numerischen Index - der bedeutet damit "Position in dieser Liste", nicht
+   * "Position in der Datei".
+   */
   rows: TableRow[];
   onCellCommit: (rowId: string, columnId: string, value: string | null) => void;
-  onAddRow?: () => void;
+  /** Legt oben eine neue Zeile an (Strg+Enter). */
+  onInsertRow?: () => void;
   onDeleteRow: (rowId: string) => void;
-  onReorderRow: (rowId: string, newIndex: number) => void;
   onFocusedRowChange?: (row: TableRow | null) => void;
   contacts: string[];
   /**
-   * Abgelegte Notizen (2_ai-ready) sind bearbeitbar, aber dort entstehen keine
-   * neuen Zeilen - neue Eintraege gehoeren immer in die laufende Notiz.
+   * Liegt die Zeile noch in 0_sources, ist also noch nicht abgesendet? Bewusst
+   * ein Praedikat und kein Herkunftsobjekt: so kann kein Archivdateiname in
+   * den Render-Baum gelangen.
    */
-  canAddRows?: boolean;
-  /** Der Fokus verlaesst die Tabelle nach unten (siehe App.tsx). */
-  onLeaveBottom?: () => void;
+  isLiveRow: (rowId: string) => boolean;
+  /**
+   * Zeilen, die nach einer Aenderung nicht mehr zum Filter passen, aber
+   * absichtlich noch stehen bleiben (siehe useNoteViewFilters) - sie werden
+   * gedimmt dargestellt.
+   */
+  graceRowIds?: ReadonlySet<string>;
 }
 
 function columnsForRow(definition: TableDefinition, row: TableRow | undefined): ColumnDefinition[] {
@@ -35,14 +46,25 @@ export function DataGrid({
   definition,
   rows,
   onCellCommit,
-  onAddRow,
+  onInsertRow,
   onDeleteRow,
-  onReorderRow,
   onFocusedRowChange,
   contacts,
-  canAddRows = true,
-  onLeaveBottom,
+  isLiveRow,
+  graceRowIds,
 }: DataGridProps) {
+  /**
+   * Zellen-Elemente, geschluesselt nach "zeilenId:spaltenId" - bewusst NICHT
+   * nach Index. Sortieren und Filtern laesst Zeilenidentitaeten zwischen
+   * Indizes wandern, waehrend key={row.id} React dazu bringt, die DOM-Knoten
+   * UMZUORDNEN statt sie neu zu mounten. Die Reihenfolge, in der React dabei
+   * die ref-Callbacks der alten (null) und neuen Elemente fuer denselben
+   * Schluesselstring aufruft, ist nicht garantiert: eine Zeile, die auf Index
+   * 3 landet, kann "3:0" setzen, BEVOR die Zeile, die Index 3 verlaesst, ihn
+   * loescht - die Karte zeigte dann auf einen abgeloesten Knoten. Mit
+   * Identitaets-Schluesseln kann das nicht passieren, weil jede Zeile ihren
+   * eigenen Schluessel besitzt.
+   */
   const cellRefs = useRef<Map<string, HTMLDivElement | HTMLButtonElement>>(new Map());
   const gridRootRef = useRef<HTMLDivElement>(null);
   // Zeigt immer auf die aktuell editierende Zellinstanz (oder null, wenn
@@ -83,45 +105,35 @@ export function DataGrid({
     pendingScrollTopRef.current = null;
   });
 
-  const [dragRowId, setDragRowId] = useState<string | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [magicLoading, setMagicLoading] = useState<Set<string>>(new Set());
   const [magicError, setMagicError] = useState<{ key: string; message: string } | null>(null);
   const [magicUndo, setMagicUndo] = useState<Map<string, string | null>>(new Map());
 
   const getColCountForRow = (row: number) => columnsForRow(definition, rows[row]).length;
 
-  const lastRow = rows[rows.length - 1];
-  // Nur die Inhalt-Zelle entscheidet, ob die letzte Zeile "leer" ist:
-  // addRowWithDefaultTyp belegt Typ/Datum/Personen automatisch vor (siehe
-  // NoteSection), mit "alle Zellen leer" waere eine Zeile also praktisch nie
-  // leer und der Sprung ins Archiv nie erreichbar.
-  const lastRowIsEmpty = rows.length > 0 && !lastRow.cells.inhalt?.trim();
-
-  // Der Fokus liegt ausserhalb dieses Grids, auf einer Notiz-Kopfzeile.
+  // Der Fokus liegt ausserhalb dieses Grids, z.B. in der Filterleiste.
   // Solange das gilt, darf keine Zelle als fokussiert gelten: sonst behaelt
-  // die verlassene Zelle ihren Rahmen, waehrend der echte DOM-Fokus schon in
-  // der naechsten Sektion sitzt (Symptom: zwei sichtbare Fokusse,
-  // Pfeiltasten wirkungslos). Gesetzt wird das aus zwei Richtungen - hier
-  // beim eigenen Sprung (verhindert ein kurzes Aufblitzen des alten
-  // Rahmens) und im focusin-Handler unten, der auch Spruenge ANDERER Grids
-  // sieht.
+  // die verlassene Zelle ihren Rahmen, waehrend der echte DOM-Fokus schon
+  // woanders sitzt (Symptom: zwei sichtbare Fokusse, Pfeiltasten
+  // wirkungslos). Wichtiger noch: der Fokus-Reparatur-Effect unten wuerde
+  // den DOM-Fokus sonst aktiv aus dem Bedienelement zurueckreissen, in dem
+  // der Nutzer gerade arbeitet.
   const [handedOffFocus, setHandedOffFocus] = useState(false);
 
   const nav = useGridNavigation(rows.length, getColCountForRow, {
-    onRequestAddRow: () => {
-      if (!canAddRows || !onAddRow || lastRowIsEmpty) return false;
-      onAddRow();
+    onInsertRow: onInsertRow && (() => {
+      onInsertRow();
       return true;
-    },
-    onLeaveBottom: onLeaveBottom && (() => {
-      setHandedOffFocus(true);
-      onLeaveBottom();
     }),
   });
 
   const focusCell = (row: number, col: number) => {
-    const el = cellRefs.current.get(`${row}:${col}`);
+    // Index -> Identitaet erst hier aufloesen, passend zur Schluesselung von
+    // cellRefs (siehe Kommentar dort).
+    const targetRow = rows[row];
+    const targetColumn = targetRow && columnsForRow(definition, targetRow)[col];
+    if (!targetRow || !targetColumn) return;
+    const el = cellRefs.current.get(`${targetRow.id}:${targetColumn.id}`);
     // Bereits fokussiertes Element NICHT erneut fokussieren: ein erneutes
     // element.focus() auf dem schon aktiven Element scrollt den Browser-
     // Viewport neu zu dessen aktueller Position, sobald sich die Layout-
@@ -181,14 +193,17 @@ export function DataGrid({
       focusInGridRef.current = insideGrid;
       if (insideGrid) {
         // Kommt der Fokus zurueck (Klick in eine Zelle, Tab von oben), gilt
-        // die Abgabe nach unten nicht mehr - ab dann fuehrt das Grid wieder.
+        // die Abgabe nicht mehr - ab dann fuehrt das Grid wieder.
         setHandedOffFocus(false);
-      } else if (target instanceof Element && target.closest('.archive-summary')) {
-        // Der Fokus sitzt auf einer Notiz-Kopfzeile, also in KEINEM Grid.
-        // Jedes Grid muss seine Fokusmarkierung abgeben - nicht nur das, das
-        // den Sprung ausgeloest hat: sprang der Fokus aus einer Archiv-Notiz
-        // weiter, behielt die laufende Tabelle sonst ihren alten Rahmen und
-        // es waren wieder zwei Fokusse sichtbar.
+      } else if (target instanceof Element && target.closest('.note-filter-bar')) {
+        // Der Fokus sitzt in der Filterleiste, also in KEINEM Grid. Das Grid
+        // muss seine Fokusmarkierung abgeben und der Fokus-Reparatur-Effect
+        // unten muss sich zurueckhalten - sonst reisst er den DOM-Fokus
+        // mitten in der Bedienung eines Filtermenues zurueck in die Tabelle.
+        // Genau dieser Fehler trat mit den Feldern "Projekt (Zeile)" /
+        // "Meeting (Zeile)" auf (siehe Kommentar bei focusInGridRef): das
+        // zurueckgerissene focus() feuerte ein natives blur auf dem Feld,
+        // dessen commit() den frisch gewaehlten Wert sofort wieder verwarf.
         setHandedOffFocus(true);
       }
     };
@@ -214,14 +229,17 @@ export function DataGrid({
     if (focusInGridRef.current) {
       focusCell(nav.focused.row, nav.focused.col);
     }
-    // rows als Dependency: nach einem moveDown()/moveTab() ueber die letzte
-    // Zeile hinaus (neue Zeile wird angelegt) steht nav.focused schon auf
-    // der neuen Position, WAEHREND rows die neue Zeile in diesem Render-
-    // Zyklus noch nicht enthaelt - ohne rows hier wuerde dieser Effect kein
-    // zweites Mal laufen, sobald die neue Zeile tatsaechlich erscheint, und
-    // der Fokus ginge sichtbar verloren (siehe DataGrid.tsx-Bug: doppeltes
-    // Enter in der letzten Zeile legte zwar eine Zeile an, fokussierte sie
-    // aber nie).
+    // rows als Dependency, aus zwei Gruenden:
+    //
+    // 1. Sortieren und Filtern aendern, WELCHE Zeile an einem Index steht.
+    //    nav.focused zeigt auf einen Index, das DOM-Element haengt aber an
+    //    der Zeilenidentitaet - ohne diesen Durchlauf blieb der DOM-Fokus
+    //    auf der Zelle der alten Zeile stehen, waehrend der Rahmen schon
+    //    woanders sass.
+    // 2. Legt Strg+Enter eine Zeile an, steht nav.focused schon auf {0,0},
+    //    WAEHREND rows die neue Zeile in diesem Render-Zyklus noch nicht
+    //    enthaelt - ohne rows hier liefe der Effect kein zweites Mal, sobald
+    //    sie erscheint, und der Fokus ginge sichtbar verloren.
     //
     // useLayoutEffect statt useEffect: laeuft synchron nach dem DOM-Update,
     // aber VOR dem Browser-Paint - verhindert ein sichtbares Aufblitzen von
@@ -229,26 +247,33 @@ export function DataGrid({
     // naechsten Paint) kurz sichtbar waere.
   }, [nav.focused, nav.editing, rows]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Merkt sich, fuer welche Fokusposition der Auto-Edit-Effekt unten
-  // zuletzt startEditing() ausgeloest hat. Ohne dieses Gedaechtnis wuerde
+  // Merkt sich, fuer welche Zelle der Auto-Edit-Effekt unten zuletzt
+  // startEditing() ausgeloest hat. Ohne dieses Gedaechtnis wuerde
   // Escape (stopEditing(), OHNE die Fokusposition zu aendern) die Zelle
   // sofort wieder in den Editiermodus zurueckreissen: der Effect haengt an
   // nav.editing, und ein Wechsel von true -> false auf DERSELBEN Zelle
   // wuerde erneut greifen, weil sich column/row nicht geaendert haben. Mit
   // diesem Ref feuert startEditing() nur bei einem tatsaechlichen Wechsel
-  // der Fokusposition - Escape laesst die Zelle danach im reinen
-  // Anzeigemodus, so wie man es von Tabellenkalkulationen kennt.
+  // der Zelle - Escape laesst die Zelle danach im reinen Anzeigemodus, so
+  // wie man es von Tabellenkalkulationen kennt.
+  //
+  // Geschluesselt nach Identitaet, nicht nach Index (wie cellRefs): unter
+  // Sortierung kann derselbe Index eine ANDERE Zeile sein. Mit
+  // Index-Schluesseln haette eine Neusortierung den Editiermodus auf einer
+  // frisch an diese Position gerueckten Zelle unterdrueckt (Schluessel
+  // unveraendert) bzw. ihn ungewollt ausgeloest.
   const autoEditedPosRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (nav.editing) return;
     // Kein Auto-Editiermodus, wenn der Fokus das Grid verlassen hat: sonst
-    // mountet die verlassene Zelle ein Eingabefeld, das den DOM-Fokus der
-    // naechsten Sektion wieder wegnimmt.
+    // mountet die verlassene Zelle ein Eingabefeld, das den DOM-Fokus des
+    // gerade bedienten Elements wieder wegnimmt.
     if (handedOffFocus) return;
-    const posKey = `${nav.focused.row}:${nav.focused.col}`;
-    if (autoEditedPosRef.current === posKey) return;
-    const column = columnsForRow(definition, rows[nav.focused.row])[nav.focused.col];
+    const focusedRow = rows[nav.focused.row];
+    const column = focusedRow && columnsForRow(definition, focusedRow)[nav.focused.col];
+    const posKey = focusedRow && column ? `${focusedRow.id}:${column.id}` : null;
+    if (posKey === null || autoEditedPosRef.current === posKey) return;
     if (column) {
       // Bewusst OHNE Klickposition: dieser Effect ist der automatische
       // "sofort tippen koennen"-Trigger, der bei JEDEM Fokuswechsel auf
@@ -307,52 +332,40 @@ export function DataGrid({
           role="row"
           tabIndex={0}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && canAddRows && onAddRow) {
+            if (e.key === 'Enter' && onInsertRow) {
               e.preventDefault();
-              onAddRow();
+              onInsertRow();
             }
           }}
-          onClick={canAddRows ? onAddRow : undefined}
+          onClick={onInsertRow}
         >
-          {canAddRows ? 'Noch keine Einträge – Eingabe zum Hinzufügen' : 'Keine Einträge'}
+          {onInsertRow ? 'Keine Einträge – Eingabe zum Hinzufügen' : 'Keine Einträge'}
         </div>
       ) : (
         rows.map((row, rowIndex) => {
           const columns = columnsForRow(definition, row);
+          const isGrace = graceRowIds?.has(row.id) ?? false;
           return (
             <div
               key={row.id}
               role="row"
-              className={`data-grid-row${dragOverIndex === rowIndex ? ' drag-over' : ''}`}
-              onDragOver={(e: DragEvent<HTMLDivElement>) => {
-                if (!dragRowId) return;
-                e.preventDefault();
-                setDragOverIndex(rowIndex);
-              }}
-              onDrop={(e: DragEvent<HTMLDivElement>) => {
-                e.preventDefault();
-                if (dragRowId) onReorderRow(dragRowId, rowIndex);
-                setDragRowId(null);
-                setDragOverIndex(null);
-              }}
+              className={`data-grid-row${isGrace ? ' data-grid-row--grace' : ''}`}
             >
+              {/* Vorspalte: fruehere Position des Ziehgriffs. Zeigt jetzt, ob
+                  die Zeile noch in 0_sources liegt, also noch nicht
+                  abgesendet wurde. Nur dieser Zustand wird markiert -
+                  abgelegte Zeilen bleiben leer, damit das Auffaellige der
+                  offene Posten ist. */}
               <div className="data-grid-grip-col">
-                <span
-                  className="row-grip"
-                  draggable
-                  title="Zeile ziehen zum Umsortieren"
-                  aria-label="Zeile ziehen zum Umsortieren"
-                  onDragStart={(e: DragEvent<HTMLSpanElement>) => {
-                    e.dataTransfer.effectAllowed = 'move';
-                    setDragRowId(row.id);
-                  }}
-                  onDragEnd={() => {
-                    setDragRowId(null);
-                    setDragOverIndex(null);
-                  }}
-                >
-                  ⠿
-                </span>
+                {isLiveRow(row.id) && (
+                  <span
+                    className="row-pending-marker"
+                    title="Noch nicht übermittelt (liegt in 0_sources)"
+                    aria-label="Noch nicht übermittelt"
+                  >
+                    ✎
+                  </span>
+                )}
               </div>
               {columns.map((col, colIndex) => {
                 const isFocused = !handedOffFocus
@@ -363,8 +376,9 @@ export function DataGrid({
                     key={col.id}
                     role="cell"
                     ref={(el) => {
-                      if (el) cellRefs.current.set(`${rowIndex}:${colIndex}`, el);
-                      else cellRefs.current.delete(`${rowIndex}:${colIndex}`);
+                      const refKey = `${row.id}:${col.id}`;
+                      if (el) cellRefs.current.set(refKey, el);
+                      else cellRefs.current.delete(refKey);
                     }}
                     // Nach der Fokusabgabe behaelt die gemerkte Position den
                     // Tab-Einstieg (ohne den Fokusrahmen), damit das Grid per

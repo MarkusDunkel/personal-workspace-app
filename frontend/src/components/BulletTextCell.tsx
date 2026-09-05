@@ -188,6 +188,16 @@ export const BulletTextCell = forwardRef<CellHandle, CellProps>(function BulletT
         // waehrend editing===true ebenfalls auf Enter/Tab reagiert (siehe
         // useGridNavigation.ts) - das fuehrte sonst zu doppelter
         // Verarbeitung eines einzelnen Tastendrucks.
+        // Strg+Enter ist das Kuerzel fuer "neue Zeile anlegen" und gehoert
+        // dem Grid, nicht dieser Zelle: hier durchlassen (kein
+        // stopPropagation, kein preventDefault), damit es das aeussere
+        // onKeyDown und damit useGridNavigation erreicht. Ohne diese
+        // Ausnahme haette der Enter-Zweig unten stattdessen eine neue
+        // Bullet-Zeile im Text eingefuegt.
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          return;
+        }
+
         const el = e.currentTarget;
         const cursor = el.selectionStart;
         const text = el.value;
