@@ -1074,3 +1074,392 @@ body {
     font-size: 0.72rem;
     padding: 0.2rem 0.35rem;
 }
+
+/* ===== Workspaces =====
+
+   Arbeitsdokumente aus 2_ai-ready/workspaces: gerendert lesen, markieren und
+   kommentieren; Text aendern im Rohmodus. Alle Farben ueber die
+   :root-Variablen am Dateianfang - der prefers-color-scheme-Block dort
+   ueberschreibt sie, alles rein in var(--...) ausgedrueckte bekommt den
+   Dunkelmodus also ohne eigene Regel. */
+
+/* Aufklappmenue in der Topbar. Die Liste selbst nutzt
+   .autocomplete-suggestions (absolut positioniert, z-index 10) - daher
+   braucht der Anker position: relative, genau wie .column-filter. */
+.topbar-menu-dropdown-anchor {
+    position: relative;
+    display: inline-block;
+}
+
+.topbar-menu-dropdown {
+    /* Rechtsbuendig zum Menuepunkt: der Punkt sitzt am rechten Ende der
+       Menueleiste, links aufzuklappen haelt die Liste im Fenster. */
+    left: auto;
+    right: 0;
+    min-width: 14rem;
+}
+
+.topbar-menu-dropdown-selected {
+    color: var(--accent);
+}
+
+.topbar-menu-dropdown-empty {
+    color: var(--muted);
+    font-size: 0.72rem;
+    padding: 0.3rem 0.6rem;
+    white-space: normal;
+}
+
+.workspaces-view {
+    flex: 1;
+    padding: 0 1rem 1rem;
+    overflow-y: auto;
+}
+
+.ws-empty {
+    color: var(--muted);
+    margin-top: 2rem;
+    text-align: center;
+}
+
+.ws-empty-hint {
+    font-size: 0.75rem;
+}
+
+.ws-error {
+    color: var(--error);
+}
+
+.ws-editor {
+    max-width: 60rem;
+}
+
+.ws-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 0.4rem 0;
+}
+
+.ws-title {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: normal;
+}
+
+.ws-raw-toggle {
+    font: inherit;
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    background: transparent;
+    color: var(--fg);
+    cursor: pointer;
+}
+
+.ws-raw-toggle:hover {
+    border-color: var(--accent);
+}
+
+.ws-status {
+    margin-left: auto;
+    font-size: 0.7rem;
+    color: var(--muted);
+}
+
+.ws-conflict {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.5rem 0;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+    border: 1px solid var(--warn);
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+.ws-conflict button {
+    font: inherit;
+    font-size: 0.72rem;
+    padding: 0.1rem 0.4rem;
+    border: 1px solid var(--warn);
+    border-radius: 0.2rem;
+    background: transparent;
+    color: var(--fg);
+    cursor: pointer;
+}
+
+/* Rohmodus: das ganze Dokument als ein Textfeld. Rezept von
+   .text-editor-modal-textarea, aber ohne feste Hoehe - die folgt dem Inhalt
+   (siehe WorkspaceEditor.resize). */
+.ws-raw-input {
+    width: 100%;
+    margin: 0.5rem 0;
+    padding: 0.4rem;
+    font: inherit;
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    resize: none;
+    overflow: hidden;
+}
+
+.ws-raw-input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+/* Gerenderte Ansicht */
+.ws-doc {
+    padding: 0.5rem 0 3rem;
+    font-size: 0.82rem;
+    line-height: 1.6;
+}
+
+.ws-block {
+    margin: 0 0 0.45rem;
+}
+
+.ws-block-h1,
+.ws-block-h2,
+.ws-block-h3,
+.ws-block-h4,
+.ws-block-h5,
+.ws-block-h6 {
+    font-weight: bold;
+    line-height: 1.3;
+    margin: 0.9rem 0 0.35rem;
+}
+
+.ws-block-h1 { font-size: 1.15rem; }
+.ws-block-h2 { font-size: 1.05rem; }
+.ws-block-h3 { font-size: 0.95rem; }
+.ws-block-h4,
+.ws-block-h5,
+.ws-block-h6 { font-size: 0.85rem; }
+
+.ws-block-quote {
+    border-left: 3px solid var(--border);
+    padding-left: 0.6rem;
+    color: var(--muted);
+}
+
+/* Code-Bloecke, Frontmatter und Tabellen bleiben woertlich - ihr Inhalt darf
+   nicht als Markdown gedeutet werden. */
+.ws-block-code {
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0.4rem 0 0.6rem;
+    padding: 0.4rem 0.6rem;
+    background: color-mix(in srgb, var(--fg) 4%, transparent);
+    border-radius: 0.25rem;
+    font-size: 0.78rem;
+}
+
+.ws-block-hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 0.9rem 0;
+}
+
+.ws-block-list,
+.ws-block-task {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.ws-list-bullet,
+.ws-task-box {
+    flex: 0 0 auto;
+    color: var(--muted);
+}
+
+.ws-inline-code {
+    padding: 0 0.2rem;
+    background: color-mix(in srgb, var(--fg) 8%, transparent);
+    border-radius: 0.15rem;
+}
+
+.ws-link {
+    color: var(--accent);
+}
+
+/* Hervorhebung. <mark> ist semantisch richtig, und Obsidian rendert "=="
+   ebenfalls als <mark> - die Optik entspricht damit dem Zielsystem. */
+.ws-highlight {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    color: inherit;
+    border-radius: 0.15rem;
+    padding: 0 0.1rem;
+}
+
+/* Mit Kommentar zusaetzlich unterstrichen, damit die beiden Zustaende
+   unterscheidbar sind, ohne eine zweite Farbe einzufuehren. */
+.ws-highlight--commented {
+    text-decoration: underline dotted;
+    text-underline-offset: 0.15rem;
+}
+
+.ws-loose-comment {
+    cursor: help;
+    font-size: 0.7rem;
+}
+
+/* Kommentare stehen direkt unter dem zugehoerigen Absatz, eingerueckt als
+   Randnotiz. */
+.ws-block-comments {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin: -0.2rem 0 0.6rem 1.2rem;
+}
+
+.ws-comment-note {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    font-size: 0.75rem;
+    line-height: 1.45;
+    padding: 0.1rem 0.3rem;
+    border: none;
+    border-radius: 0.2rem;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.ws-comment-note:hover {
+    background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+
+.ws-comment-note-quote {
+    color: var(--fg);
+}
+
+.ws-comment-note-text {
+    color: var(--muted);
+}
+
+.ws-hint {
+    margin: 0.3rem 0;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.72rem;
+    color: var(--fg);
+    border: 1px solid var(--warn);
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+
+/* Schwebeleiste an der Auswahl. position: fixed, weil
+   getBoundingClientRect bereits viewport-relativ liefert - damit entfaellt
+   jede Scroll-Arithmetik. */
+.ws-selection-bar {
+    position: fixed;
+    z-index: 20;
+    display: flex;
+    gap: 0.2rem;
+    padding: 0.2rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+}
+
+.ws-selection-bar button {
+    font: inherit;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    padding: 0.15rem 0.4rem;
+    border: 1px solid transparent;
+    border-radius: 0.2rem;
+    background: transparent;
+    color: var(--fg);
+    cursor: pointer;
+}
+
+.ws-selection-bar button:hover {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Kommentar-Eingabe. Bewusst OHNE .submit-modal-overlay: eine
+   bildschirmfuellende Abdunklung ist fuer eine leichte Anmerkung falsch und
+   wuerde genau den Text verdecken, um den es geht. Nicht "vereinheitlichen". */
+.ws-comment-popover {
+    position: fixed;
+    z-index: 21;
+    width: 20rem;
+    padding: 0.4rem;
+    background: var(--bg);
+    border: 1px solid var(--accent);
+    border-radius: 0.25rem;
+    box-shadow: 0 4px 12px rgb(0 0 0 / 30%);
+}
+
+.ws-comment-popover-quote {
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ws-comment-popover-input {
+    width: 100%;
+    font: inherit;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    padding: 0.25rem;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 0.2rem;
+    resize: vertical;
+}
+
+.ws-comment-popover-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem;
+    margin-top: 0.3rem;
+}
+
+.ws-comment-popover-actions button {
+    font: inherit;
+    font-size: 0.7rem;
+    padding: 0.15rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 0.2rem;
+    background: transparent;
+    color: var(--fg);
+    cursor: pointer;
+}
+
+.ws-comment-popover-actions button:hover {
+    border-color: var(--accent);
+}
+
+.ws-comment-popover-hint {
+    margin: 0.25rem 0 0;
+    font-size: 0.66rem;
+    color: var(--muted);
+}
+
+.ws-name-hint {
+    margin: 0.25rem 0 0;
+    font-size: 0.68rem;
+    color: var(--warn);
+}

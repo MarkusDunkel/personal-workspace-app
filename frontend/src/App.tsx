@@ -5,10 +5,12 @@ import { NoteSection } from './components/NoteSection';
 import { TopBar } from './components/TopBar';
 import type { AppView } from './components/TopBar';
 import { AzureBoardsView } from './components/AzureBoardsView';
+import { WorkspacesView } from './components/WorkspacesView';
 import { useContacts } from './hooks/useContacts';
 import { useProjekte } from './hooks/useProjekte';
 import { useMeetings } from './hooks/useMeetings';
 import { useNoteTableDefinitions } from './hooks/useNoteTableDefinitions';
+import { useWorkspaces } from './hooks/useWorkspaces';
 
 const HINT = 'Pfeile/Tab navigieren · Strg+Enter neue Zeile · Entf leert Zelle · Esc abbrechen';
 
@@ -29,6 +31,12 @@ export function App() {
   const [currentMeeting, setCurrentMeeting] = useState('');
 
   const notes = definitions?.find((d) => d.id === 'notes');
+
+  // Die Workspace-Liste liegt hier, weil die TopBar sie fuer ihr Aufklappmenue
+  // braucht und die Workspaces-Ansicht denselben Stand sehen muss - dieselbe
+  // Aufteilung wie bei projekte/meetings.
+  const { workspaces, loaded: workspacesLoaded } = useWorkspaces();
+  const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null);
 
   const handleStatusChange = useCallback((tableId: string, status: TableStatus) => {
     setStatusById((prev) => ({ ...prev, [tableId]: status }));
@@ -57,8 +65,15 @@ export function App() {
         onMeetingCommit={setCurrentMeeting}
         projekte={projekte}
         meetings={meetings}
+        workspaces={workspaces}
+        activeWorkspace={activeWorkspace}
+        onWorkspaceSelect={setActiveWorkspace}
       />
-      {view === 'notes' ? (
+      {/* Bewusst eine Kette EXPLIZITER Zweige und kein Ternary mit Else-Fall:
+          der frueher hier stehende Else-Zweig rendete AzureBoardsView,
+          wodurch jeder neu hinzugefuegte AppView-Wert stillschweigend Azure
+          Boards zeigte, statt sichtbar zu fehlen. */}
+      {view === 'notes' && (
         <main className="tables-wrap">
           {notes ? (
             <NoteSection
@@ -75,8 +90,15 @@ export function App() {
             <p className="loading-hint">Lade Notizen…</p>
           )}
         </main>
-      ) : (
-        <AzureBoardsView />
+      )}
+      {view === 'azureBoards' && <AzureBoardsView />}
+      {view === 'workspaces' && (
+        <WorkspacesView
+          workspaces={workspaces}
+          workspacesLoaded={workspacesLoaded}
+          activeWorkspace={activeWorkspace}
+          contacts={contacts}
+        />
       )}
       {view === 'notes' && <StatusBar tables={Object.values(statusById)} hint={HINT} />}
     </>
