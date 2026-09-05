@@ -95,10 +95,16 @@ export function NoteSection({
 
   const handleCellCommit = useCallback(
     (rowId: string, columnId: string, value: string | null) => {
-      table.setCell(rowId, columnId, value);
+      // Das Grid committet bei JEDEM Fokuswechsel, nicht nur nach einer
+      // Eingabe - setCell liefert daher null, wenn sich der Wert gar nicht
+      // geaendert hat. Dann darf auch nichts ausgegraut werden.
+      const changed = table.setCell(rowId, columnId, value);
+      if (!changed) return;
       // Haelt die Zeile sichtbar, falls die Aenderung sie aus dem aktiven
-      // Filter faellt - sonst verschwindet sie unter dem Cursor.
-      filters.keepVisible(rowId);
+      // Filter faellt - sonst verschwindet sie unter dem Cursor. Mit dem
+      // BEREITS geaenderten Stand, denn table.rows traegt hier noch den
+      // alten.
+      filters.keepVisible(changed);
     },
     [table, filters],
   );

@@ -80,9 +80,10 @@ export interface UseNoteViewFilters {
   clearAll: () => void;
   /**
    * Haelt eine Zeile sichtbar, obwohl sie nicht mehr zum Filter passt. Wird
-   * nach jedem Zellcommit aufgerufen.
+   * nach jeder echten Zellaenderung mit dem BEREITS geaenderten Stand der
+   * Zeile aufgerufen; passt sie weiterhin zum Filter, passiert nichts.
    */
-  keepVisible: (rowId: string) => void;
+  keepVisible: (row: TableRow) => void;
 }
 
 export function useNoteViewFilters(
@@ -113,12 +114,6 @@ export function useNoteViewFilters(
     graceIdsRef.current = new Set();
     setGraceVersion((n) => n + 1);
   };
-
-  const keepVisible = useCallback((rowId: string) => {
-    if (graceIdsRef.current.has(rowId)) return;
-    graceIdsRef.current = new Set(graceIdsRef.current).add(rowId);
-    setGraceVersion((n) => n + 1);
-  }, []);
 
   const owners = useMemo(
     () => (definition ? columnOwnerTyps(definition) : new Map<string, string[]>()),
@@ -257,12 +252,14 @@ export function useNoteViewFilters(
     return manual && manual.size > 0 ? [...manual] : definition.typValues;
   }, [definition, state.typScope, state.columnValues]);
 
-  const visibleRows = useMemo(() => {
-    const grace = graceIdsRef.current;
-    const typSet = new Set(effectiveTyps);
-    const restrictsTyp = definition ? typSet.size < definition.typValues.length : false;
-
-    const matches = (row: TableRow): boolean => {
+  /**
+   * Passt die Zeile zum aktuellen Filter? Ausserhalb von visibleRows
+   * definiert, weil keepVisible dieselbe Frage stellen muss.
+   */
+  const matchesFilter = useCallback(
+    (row: TableRow): boolean => {
+      const typSet = new Set(effectiveTyps);
+      const restrictsTyp = definition ? typSet.size < definition.typValues.length : false;
       if (restrictsTyp) {
         const typ = row.cells[definition!.typColumn.id];
         if (!typ || !typSet.has(typ)) return false;
@@ -286,15 +283,42 @@ export function useNoteViewFilters(
         if (!selected.has(value ? value : EMPTY_VALUE)) return false;
       }
       return true;
-    };
+    },
+    [definition, effectiveTyps, state.columnValues, state.projekt, state.meeting],
+  );
 
+  /**
+   * Nimmt die Zeile nur dann in die Kulanzmenge, wenn sie tatsaechlich nicht
+   * mehr zum Filter passt. Ohne diese Pruefung landete JEDE bearbeitete
+   * Zeile darin und wurde ausgegraut - auch bei voellig inaktivem Filter,
+   * was wie "hier wurde etwas veraendert" aussah, obwohl die Ausgrauung nur
+   * "passt nicht mehr zum Filter" bedeuten soll.
+   *
+   * Die Zeile wird als Objekt uebergeben und nicht per id nachgeschlagen:
+   * der Aufrufer (NoteSection.handleCellCommit) kennt den frisch geaenderten
+   * Stand, waehrend rows in diesem Renderzyklus noch den alten enthaelt -
+   * ein Nachschlagen hier wuerde gegen den Zustand VOR der Aenderung pruefen
+   * und die Zeile nie als herausgefallen erkennen.
+   */
+  const keepVisible = useCallback(
+    (row: TableRow) => {
+      if (graceIdsRef.current.has(row.id)) return;
+      if (matchesFilter(row)) return;
+      graceIdsRef.current = new Set(graceIdsRef.current).add(row.id);
+      setGraceVersion((n) => n + 1);
+    },
+    [matchesFilter],
+  );
+
+  const visibleRows = useMemo(() => {
+    const grace = graceIdsRef.current;
     return rows
-      .filter((row) => matches(row) || grace.has(row.id))
+      .filter((row) => matchesFilter(row) || grace.has(row.id))
       .sort(comparatorFor(state.sort));
     // graceVersion als Dependency: die Kulanzmenge liegt in einer Ref, ihre
     // Aenderung muss die Neuberechnung dennoch anstossen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, state, effectiveTyps, definition, graceVersion]);
+  }, [rows, state.sort, matchesFilter, graceVersion]);
 
   const isActive =
     state.sort !== null

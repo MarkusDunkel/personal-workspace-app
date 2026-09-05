@@ -54,7 +54,11 @@ export interface MergedNoteData {
   pendingFileCount: number;
   loadMore: () => void;
   isLiveRow: (rowId: string) => boolean;
-  setCell: (rowId: string, columnId: string, value: string | null) => void;
+  /**
+   * Setzt eine Zelle. Gibt die geaenderte Zeile zurueck - oder null, wenn
+   * der Wert unveraendert war und daher nichts geschrieben wurde.
+   */
+  setCell: (rowId: string, columnId: string, value: string | null) => TableRow | null;
   insertRow: (initialCells?: Record<string, string | null>) => string;
   deleteRow: (rowId: string) => void;
   saveNow: () => Promise<void>;
@@ -197,18 +201,52 @@ export function useMergedNoteData(liveTableId: string, reloadToken: number = 0):
     [scheduleSave],
   );
 
+  /**
+   * Gibt true zurueck, wenn dieser Commit den Zellwert tatsaechlich aendert.
+   *
+   * Notwendig, weil das Grid bei JEDEM Fokuswechsel committet, nicht nur
+   * nach einer Eingabe: ein Klick auf eine Zelle startet den Editiermodus
+   * (Auto-Edit-Effect in DataGrid, damit man sofort tippen kann), und beim
+   * Verlassen ruft die Zelle onCommit mit ihrem unveraenderten Entwurf auf.
+   * Ohne diese Pruefung galt allein das ANKLICKEN einer Zeile als Aenderung -
+   * mit drei sichtbaren Folgen: die Datei wurde als geaendert markiert,
+   * lastChanged bekam einen neuen Zeitstempel, und bei einer abgelegten
+   * Notiz lehnte der Server das anschliessende Speichern mit "Nicht
+   * pseudonymisierbar" ab, sobald irgendwo in DERSELBEN Datei ein Name
+   * steht, den das Register nicht kennt (rejectUnmappedPersonNames prueft
+   * die ganze Datei, nicht nur die geaenderte Zeile).
+   *
+   * Leerstring und null gelten als derselbe Zustand: eine leere Zelle
+   * kommt aus den Dateien in beiden Formen (siehe NoteArchiveService -
+   * aeltere Dateien kennen manche Spalten gar nicht), und die Zellen
+   * committen "" konsequent als null.
+   */
+  const isRealChange = (row: TableRow, columnId: string, value: string | null) => {
+    const previous = row.cells[columnId];
+    const normalize = (v: string | null | undefined) => (v === undefined || v === '' ? null : v);
+    return normalize(previous) !== normalize(value);
+  };
+
+  /**
+   * Liefert die geaenderte Zeile zurueck, wenn wirklich etwas geaendert
+   * wurde - sonst null. Der Aufrufer braucht diesen Rueckgabewert, um die
+   * Zeile bei Bedarf sichtbar zu halten (siehe
+   * useNoteViewFilters.keepVisible): rows enthaelt in diesem Renderzyklus
+   * noch den alten Stand.
+   */
   const setCell = useCallback(
-    (rowId: string, columnId: string, value: string | null) => {
+    (rowId: string, columnId: string, value: string | null): TableRow | null => {
       const origin = originByRowIdRef.current.get(rowId);
-      if (!origin) return;
+      if (!origin) return null;
+      const row = rowsRef.current.find((r) => r.id === rowId);
+      if (!row || !isRealChange(row, columnId, value)) return null;
+      const updated: TableRow = {
+        ...row,
+        cells: { ...row.cells, [columnId]: value, lastChanged: new Date().toISOString() },
+      };
       markDirty(originKey(origin));
-      mutateRows((current) =>
-        current.map((r) =>
-          r.id === rowId
-            ? { ...r, cells: { ...r.cells, [columnId]: value, lastChanged: new Date().toISOString() } }
-            : r,
-        ),
-      );
+      mutateRows((current) => current.map((r) => (r.id === rowId ? updated : r)));
+      return updated;
     },
     [markDirty, mutateRows],
   );
