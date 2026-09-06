@@ -65,7 +65,12 @@ export function useBlockSelection(
       // diese Pruefung also nicht - sie muss hier von Hand stehen.
       if (from === null || to === null) {
         setActive(null);
-        setProblem(null);
+        // Bewusst ein sichtbarer Hinweis und nicht mehr stilles Nichts: seit
+        // domPointToSourceOffset auf den Block klemmt, ist dieser Fall selten
+        // und bedeutet dann wirklich "hier ist nichts markierbar" (etwa eine
+        // Auswahl allein im Code-Block). Ohne Rueckmeldung sah der fruehere
+        // Fehler wie eine kaputte Schaltflaeche aus.
+        setProblem('unmappable');
         return;
       }
 

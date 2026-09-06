@@ -8,6 +8,8 @@ interface WorkspacesViewProps {
   activeWorkspace: string | null;
   /** Fuer den Klarnamen-Hinweis beim Kommentieren. */
   contacts: string[];
+  /** Pseudonym -> Klarname, nur fuer die Anzeige. */
+  personNames: Record<string, string>;
 }
 
 /**
@@ -25,6 +27,7 @@ export function WorkspacesView({
   workspacesLoaded,
   activeWorkspace,
   contacts,
+  personNames,
 }: WorkspacesViewProps) {
   if (!workspacesLoaded) {
     return (
@@ -70,6 +73,7 @@ export function WorkspacesView({
         name={active.name}
         title={active.title}
         contacts={contacts}
+        personNames={personNames}
       />
     </main>
   );

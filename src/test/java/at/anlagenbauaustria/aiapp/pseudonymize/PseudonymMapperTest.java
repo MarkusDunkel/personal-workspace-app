@@ -105,6 +105,32 @@ class PseudonymMapperTest {
         assertThat(mapping.unmappedNames(mapping.toPseudonym("Markus Dunkel"))).isEmpty();
     }
 
+    /**
+     * Was PersonRegisterController ausliefert: NUR die Hinrichtung. Ein
+     * Alias darf darin nicht auftauchen - die Oberflaeche zeigt immer den
+     * Kanonischen (siehe Mapping.displayNames).
+     */
+    @Test
+    void displayNamesExposesOnlyPseudonymToCanonical() throws IOException {
+        PseudonymMapper.Mapping mapping = mappingFor(
+                "Helena Nölscher,Person_004,person,Helena;Nölscher,\n"
+                        + "Markus Dunkel,Person_007,person,,\n");
+
+        assertThat(mapping.displayNames())
+                .containsExactlyInAnyOrderEntriesOf(java.util.Map.of(
+                        "Person_004", "Helena Nölscher",
+                        "Person_007", "Markus Dunkel"));
+    }
+
+    @Test
+    void displayNamesIsEmptyWithoutRegister() throws IOException {
+        AivaultProperties properties = new AivaultProperties();
+        properties.setRoot(aivaultRoot);
+
+        assertThat(new PseudonymMapper(new AivaultEnv(properties)).load().displayNames())
+                .isEmpty();
+    }
+
     @Test
     void missingRegisterYieldsEmptyMapping() throws IOException {
         AivaultProperties properties = new AivaultProperties();

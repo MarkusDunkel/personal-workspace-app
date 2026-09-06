@@ -2,7 +2,13 @@ import type { ReactNode } from 'react';
 import type { MdBlock, MdTableCell, TableAlign } from '../utils/markdownBlocks';
 import { splitBlocks } from '../utils/markdownBlocks';
 import type { InlineToken } from '../utils/markdownInline';
-import { collectHighlights, plainTextOf, shift, tokenizeInline } from '../utils/markdownInline';
+import {
+  collectHighlights,
+  displayNames,
+  plainTextOf,
+  shift,
+  tokenizeInline,
+} from '../utils/markdownInline';
 import { blockTokens } from '../utils/markdownOffsets';
 import { highlightCode } from '../utils/highlightCode';
 
@@ -10,7 +16,27 @@ interface MarkdownViewProps {
   markdown: string;
   /** Klick auf eine Kommentarnotiz - zum Bearbeiten (Phase 6). */
   onCommentClick?: (highlightStart: number) => void;
+  /**
+   * Pseudonym -> Klarname, NUR fuer die Anzeige. Fehlt es, werden die
+   * Pseudonyme gezeigt.
+   */
+  personNames?: Record<string, string>;
 }
+
+/** Ein Pseudonym im Dokument, wie es die Pipeline schreibt: "Person_076". */
+const PSEUDONYM = /Person_\d+/g;
+
+/**
+ * Die aktuell gueltige Zuordnung, waehrend des Rendervorgangs gesetzt.
+ *
+ * Ein Modulwert und kein Context oder Parameter: die Renderfunktionen unten
+ * sind bewusst schlichte, rekursive Funktionen ohne Zustand, und die
+ * Zuordnung haette sonst durch jede einzelne davon durchgereicht werden
+ * muessen. React rendert synchron und in einem Durchgang, der Wert steht
+ * also fuer den gesamten Baum fest. Er wird nur GELESEN, nie zurueck-
+ * geschrieben.
+ */
+let personNames: Record<string, string> | undefined;
 
 /**
  * Zeigt Markdown gerendert an. Bewusst NICHT editierbar: Text wird im
@@ -30,7 +56,7 @@ interface MarkdownViewProps {
  * im Rohmodus vollstaendig bearbeitbar, und replaceBlock kann es nicht
  * beschaedigen.
  */
-export function MarkdownView({ markdown, onCommentClick }: MarkdownViewProps) {
+export function MarkdownView({ markdown, onCommentClick, personNames: names }: MarkdownViewProps) {
   const blocks = splitBlocks(markdown);
 
   return (
@@ -40,6 +66,7 @@ export function MarkdownView({ markdown, onCommentClick }: MarkdownViewProps) {
           key={block.start}
           block={block}
           onCommentClick={onCommentClick}
+          personNames={names}
         />
       ))}
     </div>
@@ -49,10 +76,17 @@ export function MarkdownView({ markdown, onCommentClick }: MarkdownViewProps) {
 function BlockView({
   block,
   onCommentClick,
+  personNames: names,
 }: {
   block: MdBlock;
   onCommentClick?: (highlightStart: number) => void;
+  personNames?: Record<string, string>;
 }) {
+  // Unmittelbar vor den Renderaufrufen dieses Blocks setzen. Der Wert wird
+  // nur innerhalb dieses synchronen Funktionsaufrufs gelesen (renderTokens
+  // laeuft vollstaendig hier durch), nicht in einer spaeteren Kindkomponente
+  // - deshalb kann kein anderes Rendern dazwischenkommen.
+  personNames = names;
   // Code-Bloecke und Frontmatter bleiben woertlich stehen - ihr Inhalt darf
   // gar nicht als Markdown gedeutet werden.
   if (block.kind === 'codeFence' || block.kind === 'verbatim') {
@@ -61,7 +95,7 @@ function BlockView({
   if (block.kind === 'blank') return null;
   if (block.kind === 'hr') return <hr className="ws-block-hr" />;
   if (block.kind === 'table') {
-    return <TableView block={block} onCommentClick={onCommentClick} />;
+    return <TableView block={block} onCommentClick={onCommentClick} personNames={names} />;
   }
 
   const tokens = tokenizeInline(block.source);
@@ -69,7 +103,14 @@ function BlockView({
   // Oberflaeche Dokument-Offsets. Die Umrechnung passiert beim Rendern, damit
   // jedes data-ws-off direkt im Dokument-Koordinatensystem steht.
   const body = renderTokens(tokens, block.start, stripPrefix(block));
-  const notes = <CommentNotes tokens={tokens} blockStart={block.start} onCommentClick={onCommentClick} />;
+  const notes = (
+    <CommentNotes
+      tokens={tokens}
+      blockStart={block.start}
+      onCommentClick={onCommentClick}
+      personNames={names}
+    />
+  );
 
   const attrs = { 'data-ws-block': block.start, className: 'ws-block' } as const;
 
@@ -146,10 +187,12 @@ function CommentNotes({
   tokens,
   blockStart,
   onCommentClick,
+  personNames: names,
 }: {
   tokens: InlineToken[];
   blockStart: number;
   onCommentClick?: (highlightStart: number) => void;
+  personNames?: Record<string, string>;
 }) {
   const comments = collectHighlights(tokens).filter((h) => h.comment);
   if (comments.length === 0) return null;
@@ -166,7 +209,9 @@ function CommentNotes({
           <span className="ws-comment-note-marker" aria-hidden="true">
             └─ 💬
           </span>{' '}
-          <span className="ws-comment-note-quote">„{plainTextOf(h.children)}"</span>{' '}
+          <span className="ws-comment-note-quote">
+            „{displayNames(plainTextOf(h.children), names)}"
+          </span>{' '}
           <span className="ws-comment-note-text">{h.comment!.text}</span>
         </button>
       ))}
@@ -231,10 +276,14 @@ function alignClass(align?: TableAlign): string | undefined {
 function TableView({
   block,
   onCommentClick,
+  personNames: names,
 }: {
   block: MdBlock;
   onCommentClick?: (highlightStart: number) => void;
+  personNames?: Record<string, string>;
 }) {
+  // Wie in BlockView: unmittelbar vor den Renderaufrufen dieses Blocks.
+  personNames = names;
   const rows = block.rows ?? [];
   const align = block.align ?? [];
   const header = rows.find((r) => r.kind === 'header');
@@ -274,9 +323,69 @@ function TableView({
         tokens={allTokens}
         blockStart={block.start}
         onCommentClick={onCommentClick}
+        personNames={names}
       />
     </>
   );
+}
+
+/**
+ * Zerlegt den Text eines Tokens an den Pseudonymen.
+ *
+ * Gewoehnliche Stuecke behalten ihre EXAKTEN Quellzeichen und bekommen einen
+ * eigenen data-ws-off - fuer sie gilt die tragende Regel unveraendert. Jedes
+ * Pseudonym wird durch den Klarnamen ersetzt und in eine Spanne OHNE
+ * data-ws-off gesetzt.
+ *
+ * Dieses fehlende Attribut ist der entscheidende Punkt und kein Versehen:
+ * innerhalb des Klarnamens stimmt "DOM-Index + Offset" naemlich NICHT mehr
+ * (der Name ist laenger oder kuerzer als "Person_076"). Ohne eigenen Offset
+ * klemmt domPointToSourceOffset eine Auswahl, die dort beginnt oder endet,
+ * auf den Block - der Nutzer markiert also immer die ganze Zeile statt einer
+ * falschen Teilstelle. Ein falscher Offset waere ein beschaedigtes Dokument;
+ * geklemmt zu werden ist nur eine kleine Ungenauigkeit.
+ *
+ * Der Klarname steht ausschliesslich im DOM. Die Quelle (doc.markdown) wird
+ * nicht angefasst, und nur sie wird gespeichert - siehe useWorkspaceDocument.
+ */
+function splitPseudonyms(text: string, offset: number): ReactNode[] {
+  const names = personNames;
+  // Ohne Register (oder ohne Treffer) bleibt es bei EINEM Textknoten mit
+  // Offset - exakt das Verhalten von vorher.
+  if (!names || Object.keys(names).length === 0) {
+    return [<span key="t" data-ws-off={offset}>{text}</span>];
+  }
+
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(PSEUDONYM)) {
+    const real = names[match[0]];
+    // Unbekanntes Pseudonym bleibt stehen - das Register ist unvollstaendig,
+    // und ein Platzhalter wuerde die Information verlieren, wer gemeint war
+    // (dieselbe Entscheidung wie in PseudonymMapper.toDisplay).
+    if (real === undefined) continue;
+    const at = match.index;
+    if (at > last) {
+      out.push(
+        <span key={last} data-ws-off={offset + last}>{text.slice(last, at)}</span>,
+      );
+    }
+    out.push(
+      <span
+        key={`p${at}`}
+        className="ws-person"
+        title={`Pseudonym im Dokument: ${match[0]}`}
+      >
+        {real}
+      </span>,
+    );
+    last = at + match[0].length;
+  }
+  if (out.length === 0) return [<span key="t" data-ws-off={offset}>{text}</span>];
+  if (last < text.length) {
+    out.push(<span key={last} data-ws-off={offset + last}>{text.slice(last)}</span>);
+  }
+  return out;
 }
 
 function renderTokens(tokens: InlineToken[], blockStart: number, skipUpTo: number): ReactNode[] {
@@ -305,18 +414,39 @@ function renderToken(token: InlineToken, blockStart: number, skipUpTo: number): 
       // beruht, dass DOM-Zeichenindex minus data-ws-off den Quell-Offset
       // ergibt (siehe markdownOffsets.ts). Eine Aenderung von einem Zeichen
       // bricht die Abbildung, und nichts wuerde laut scheitern.
+      //
+      // Die EINZIGE Ausnahme sind Pseudonyme: sie werden als Klarname
+      // angezeigt. Damit die Regel gewahrt bleibt, wird das Token dafuer
+      // ZERLEGT - der Klarname bekommt eine eigene, ATOMARE Spanne ohne
+      // data-ws-off, die umgebenden Stuecke behalten ihre exakten
+      // Quellzeichen und ihren eigenen Offset. So laeuft die Offset-Arithmetik
+      // nie DURCH ersetzten Text hindurch (siehe splitPseudonyms).
       return (
-        <span key={key} data-ws-off={blockStart + from}>
-          {text}
+        <span key={key}>
+          {splitPseudonyms(text, blockStart + from)}
         </span>
       );
     }
-    case 'code':
+    case 'code': {
+      // Auch hier Pseudonyme aufloesen: in den Daily-Notizen stehen sie als
+      // Inline-Code (`Person_076`), waeren sonst also gerade dort nicht
+      // lesbar, wo sie fast ausschliesslich vorkommen.
+      //
+      // Ungefaehrlich fuer die Offset-Abbildung: ein code-Token traegt
+      // ohnehin KEIN data-ws-off (es gab hier noch nie eines), es wird also
+      // keine Offset-Arithmetik durch ersetzten Text gefuehrt. Die Quelle
+      // bleibt unangetastet - nur die Anzeige aendert sich.
+      const shown = displayNames(token.text, personNames);
       return (
-        <code key={key} className="ws-inline-code">
-          {token.text}
+        <code
+          key={key}
+          className="ws-inline-code"
+          title={shown === token.text ? undefined : `Pseudonym im Dokument: ${token.text}`}
+        >
+          {shown}
         </code>
       );
+    }
     case 'strong':
       return <strong key={key}>{renderTokens(token.children, blockStart, skipUpTo)}</strong>;
     case 'em':

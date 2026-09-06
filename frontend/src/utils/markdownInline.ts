@@ -12,6 +12,34 @@
  * Vertrag mit der KI, die sie in VS Code wieder einliest.
  */
 
+/**
+ * Ein Pseudonym, wie es die Pipeline schreibt: "Person_076".
+ *
+ * \d+ ist gierig und verschluckt die GANZE Ziffernfolge - "Person_0761"
+ * wird also als ein Pseudonym gelesen und bleibt, weil es nicht im Register
+ * steht, unveraendert stehen. Genau richtig: ein kuerzerer Eintrag darf hier
+ * nicht greifen und eine falsche Person anzeigen.
+ */
+const PSEUDONYM = /Person_\d+/g;
+
+/**
+ * Ersetzt Pseudonyme durch Klarnamen - fuer reine ZEICHENKETTEN, also fuer
+ * Zitate in Kommentaren und Randnotizen (siehe CommentNotes,
+ * CommentPopover). Der gerenderte Fliesstext geht stattdessen ueber
+ * splitPseudonyms in MarkdownView, weil dort die Quell-Offsets erhalten
+ * bleiben muessen.
+ *
+ * Unbekannte Pseudonyme bleiben stehen, wie in PseudonymMapper.toDisplay:
+ * das Register ist unvollstaendig, und ein Platzhalter wuerde die
+ * Information verlieren, wer gemeint war.
+ *
+ * NUR fuer die Anzeige. Das Ergebnis darf nie in die Datei zurueckfliessen.
+ */
+export function displayNames(text: string, names?: Record<string, string>): string {
+  if (!names || text === '') return text;
+  return text.replace(PSEUDONYM, (m) => names[m] ?? m);
+}
+
 export type InlineToken =
   | { kind: 'text'; start: number; end: number; text: string }
   | { kind: 'code'; start: number; end: number; text: string }

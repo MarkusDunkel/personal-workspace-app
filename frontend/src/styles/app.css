@@ -1451,10 +1451,34 @@ body {
     gap: 0.4rem;
 }
 
+/* Aufzaehlungszeichen und Kaestchen sind DEKORATION, kein Text: sie stehen
+   fuer die Quellzeichen "- " bzw. "- [ ] ", die bewusst keinen data-ws-off
+   tragen (siehe stripPrefix in MarkdownView). Waeren sie markierbar, begaenne
+   eine Auswahl ueber die ganze Zeile auf einem Zeichen ohne Offset, und
+   domPointToSourceOffset muesste null liefern - die Auswahl fiele still
+   durch und die Schwebeleiste erschiene nicht. Genau das war der Fehler
+   "Kommentieren geht bei einzelnen Woertern, aber nicht bei der ganzen
+   Zeile". Dieselbe Vorgehensweise wie bei .row-pending-marker. */
 .ws-list-bullet,
 .ws-task-box {
     flex: 0 0 auto;
     color: var(--muted);
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* Ein aufgeloestes Pseudonym: im Dokument steht "Person_076", angezeigt wird
+   der Klarname. Die gepunktete Unterlinie sagt "das steht so nicht in der
+   Datei" - wichtig, weil der Nutzer beim Kommentieren wissen muss, was die
+   KI spaeter tatsaechlich liest. Der Titel nennt das Pseudonym.
+
+   Bewusst NICHT user-select: none - der Name soll mitmarkierbar sein. Die
+   Spanne traegt kein data-ws-off, eine Auswahl darin klemmt daher auf den
+   Block (siehe splitPseudonyms). */
+.ws-person {
+    text-decoration: underline dotted var(--border);
+    text-underline-offset: 0.15em;
+    cursor: help;
 }
 
 .ws-inline-code {

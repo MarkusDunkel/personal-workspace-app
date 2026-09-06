@@ -10,7 +10,7 @@ import {
   setComment,
   unescapeCommentText,
 } from '../utils/markdownOffsets';
-import { plainTextOf } from '../utils/markdownInline';
+import { displayNames, plainTextOf } from '../utils/markdownInline';
 import { CommentPopover } from './CommentPopover';
 import { MarkdownView } from './MarkdownView';
 import { SelectionActionBar } from './SelectionActionBar';
@@ -20,6 +20,12 @@ interface WorkspaceEditorProps {
   title: string;
   /** Kontaktliste fuer den Klarnamen-Hinweis beim Kommentieren. */
   contacts: string[];
+  /**
+   * Pseudonym -> Klarname, NUR fuer die Anzeige. Die Datei behaelt die
+   * Pseudonyme - gespeichert wird immer doc.markdown, und darin wird nichts
+   * ersetzt (siehe MarkdownView.splitPseudonyms).
+   */
+  personNames: Record<string, string>;
 }
 
 /**
@@ -35,7 +41,7 @@ interface WorkspaceEditorProps {
  * die die KI danach in VS Code einliest. So gibt es zu jedem Zeitpunkt genau
  * EIN Koordinatensystem.
  */
-export function WorkspaceEditor({ name, title, contacts }: WorkspaceEditorProps) {
+export function WorkspaceEditor({ name, title, contacts, personNames }: WorkspaceEditorProps) {
   const doc = useWorkspaceDocument(name);
   const [raw, setRaw] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
@@ -70,7 +76,9 @@ export function WorkspaceEditor({ name, title, contacts }: WorkspaceEditorProps)
           ? 'Markierung muss innerhalb einer Tabellenzelle liegen.'
           : selection.problem === 'insideCode'
             ? 'In Code kann nicht hervorgehoben werden.'
-            : 'Markierung überlappt eine bestehende Hervorhebung nur teilweise.',
+            : selection.problem === 'unmappable'
+              ? 'Diese Markierung lässt sich keiner Textstelle zuordnen.'
+              : 'Markierung überlappt eine bestehende Hervorhebung nur teilweise.',
     );
   }, [selection.problem]);
 
@@ -232,6 +240,7 @@ export function WorkspaceEditor({ name, title, contacts }: WorkspaceEditorProps)
           <div ref={docRef}>
             <MarkdownView
               markdown={doc.markdown}
+              personNames={personNames}
               onCommentClick={(highlightStart) => {
                 const el = document.querySelector<HTMLElement>(
                   `[data-ws-highlight="${highlightStart}"]`,
@@ -259,7 +268,7 @@ export function WorkspaceEditor({ name, title, contacts }: WorkspaceEditorProps)
       {commentTarget && editingComment && (
         <CommentPopover
           rect={editingComment.rect}
-          quote={plainTextOf(commentTarget.hl.children)}
+          quote={displayNames(plainTextOf(commentTarget.hl.children), personNames)}
           initialValue={
             commentTarget.hl.comment ? unescapeCommentText(commentTarget.hl.comment.text) : ''
           }

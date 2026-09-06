@@ -7,6 +7,7 @@ import type { AppView } from './components/TopBar';
 import { AzureBoardsView } from './components/AzureBoardsView';
 import { WorkspacesView } from './components/WorkspacesView';
 import { useContacts } from './hooks/useContacts';
+import { usePersonRegister } from './hooks/usePersonRegister';
 import { useProjekte } from './hooks/useProjekte';
 import { useMeetings } from './hooks/useMeetings';
 import { useNoteTableDefinitions } from './hooks/useNoteTableDefinitions';
@@ -24,6 +25,10 @@ export function App() {
   // Reconciliation veraendert - siehe NoteSubmitService.applyDecisions).
   const [reloadToken, setReloadToken] = useState(0);
   const contacts = useContacts(reloadToken);
+  // Pseudonym -> Klarname, nur fuer die ANZEIGE in den Workspaces (siehe
+  // MarkdownView.splitPseudonyms). Haengt am selben reloadToken: nach dem
+  // Absenden kann eine neue Person ins Register aufgenommen worden sein.
+  const personNames = usePersonRegister(reloadToken);
   const projekte = useProjekte(reloadToken);
   const meetings = useMeetings(reloadToken);
 
@@ -98,6 +103,7 @@ export function App() {
           workspacesLoaded={workspacesLoaded}
           activeWorkspace={activeWorkspace}
           contacts={contacts}
+          personNames={personNames}
         />
       )}
       {view === 'notes' && <StatusBar tables={Object.values(statusById)} hint={HINT} />}

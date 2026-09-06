@@ -126,6 +126,19 @@ public class PseudonymMapper {
         }
 
         /**
+         * Die Zuordnung Pseudonym -> Klarname, unveraenderlich.
+         *
+         * Fuer die Oberflaeche, die Pseudonyme beim ANZEIGEN aufloest (siehe
+         * PersonRegisterController). Bewusst nur diese Richtung: die
+         * Rueckrichtung (Klarname -> Pseudonym) bleibt serverseitig, sonst
+         * waere sie ueber jeden kuenftigen Speicherpfad umgehbar - die
+         * Begruendung steht in der Klassen-Javadoc.
+         */
+        public Map<String, String> displayNames() {
+            return Map.copyOf(canonicalByPseudonym);
+        }
+
+        /**
          * Ersetzt jedes bekannte Pseudonym durch seinen Klarnamen. Unbekannte
          * Pseudonyme bleiben unveraendert stehen - das Register ist
          * unvollstaendig (es kennt weit weniger Personen als in den Notizen

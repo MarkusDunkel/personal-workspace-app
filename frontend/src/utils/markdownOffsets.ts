@@ -36,6 +36,7 @@ export type SelectionProblem =
   | 'crossCell'
   | 'insideCode'
   | 'partialHighlight'
+  | 'unmappable'
   | 'empty';
 
 /**
@@ -98,7 +99,15 @@ export function domPointToSourceOffset(node: Node, nodeOffset: number): number |
   // Fall 1: Position in einem Textknoten innerhalb eines Spans mit Offset.
   if (node.nodeType === Node.TEXT_NODE) {
     const span = node.parentElement?.closest<HTMLElement>('[data-ws-off]');
-    if (!span) return null;
+    // Kein Offset-Span darueber: der Punkt sitzt auf gerenderter DEKORATION,
+    // die kein Quellzeichen vertritt - dem Aufzaehlungszeichen oder dem
+    // Kaestchen einer Aufgabe (siehe MarkdownView, stripPrefix). Genau das
+    // passiert, wenn ueber eine ganze Listenzeile markiert wird. Frueher gab
+    // es hier null, die Auswahl fiel damit still durch und die
+    // Schwebeleiste erschien nicht. Stattdessen wird nun auf den Block
+    // GEKLEMMT - dieselbe Entscheidung wie in Fall 2, und der Grund, warum
+    // sie dort ausbuchstabiert steht.
+    if (!span) return clampToBlock(node.parentElement, nodeOffset <= 0);
     const base = Number(span.dataset.wsOff);
     if (!Number.isFinite(base)) return null;
     // Vorangehende Textknoten INNERHALB desselben Spans mitzaehlen. In der
@@ -129,19 +138,44 @@ export function domPointToSourceOffset(node: Node, nodeOffset: number): number |
       return base + before;
     }
     // Kein eigener Offset: auf den ersten bzw. letzten Span darunter klemmen.
-    const spans = el.querySelectorAll<HTMLElement>('[data-ws-off]');
-    if (spans.length === 0) return null;
-    if (nodeOffset <= 0) {
-      const first = spans[0];
-      const base = Number(first.dataset.wsOff);
-      return Number.isFinite(base) ? base : null;
-    }
-    const last = spans[spans.length - 1];
-    const base = Number(last.dataset.wsOff);
-    return Number.isFinite(base) ? base + (last.textContent?.length ?? 0) : null;
+    return clampToSpansIn(el, nodeOffset <= 0) ?? clampToBlock(el, nodeOffset <= 0);
   }
 
   return null;
+}
+
+/**
+ * Klemmt auf den Anfang des ersten bzw. das Ende des letzten
+ * offset-tragenden Spans UNTERHALB von `el`. Liefert null, wenn es dort
+ * keinen gibt.
+ */
+function clampToSpansIn(el: HTMLElement | null, toStart: boolean): number | null {
+  if (!el) return null;
+  const spans = el.querySelectorAll<HTMLElement>('[data-ws-off]');
+  if (spans.length === 0) return null;
+  if (toStart) {
+    const base = Number(spans[0].dataset.wsOff);
+    return Number.isFinite(base) ? base : null;
+  }
+  const last = spans[spans.length - 1];
+  const base = Number(last.dataset.wsOff);
+  return Number.isFinite(base) ? base + (last.textContent?.length ?? 0) : null;
+}
+
+/**
+ * Rettung fuer Punkte, die auf gerenderter Dekoration ohne Quellentsprechung
+ * sitzen: vom naechstgelegenen BLOCK aus auf dessen ersten bzw. letzten
+ * Offset-Span klemmen.
+ *
+ * Bewusst am Block (data-ws-block) verankert und nicht am Dokument: die
+ * Auswahl darf dadurch niemals in einen NACHBARBLOCK rutschen - das waere
+ * ein falscher Offset und damit genau die Klasse von Fehler, gegen die
+ * dieses Modul gebaut ist. Ohne Block darueber bleibt es bei null, der
+ * Aufrufer behandelt das weiterhin als "keine gueltige Markierung".
+ */
+function clampToBlock(from: HTMLElement | null, toStart: boolean): number | null {
+  const block = from?.closest<HTMLElement>('[data-ws-block]');
+  return block ? clampToSpansIn(block, toStart) : null;
 }
 
 /** Der Block, in dem ein Dokument-Offset liegt (oder null). */
@@ -196,9 +230,21 @@ export function normalizeSelection(
   const relStart = start - block.start;
   const relEnd = end - block.start;
 
-  // In Inline-Code ist "==" woertlich; ein Marker dort wuerde den Code
-  // veraendern.
-  if (overlapsKind(tokens, relStart, relEnd, 'code')) return 'insideCode';
+  // In Inline-Code ist "==" woertlich; ein Marker DARIN wuerde den Code
+  // veraendern. Entscheidend ist deshalb, wo die Marker landen - nicht, ob
+  // die Auswahl Code beruehrt:
+  //
+  //   `Person_076`          Auswahl umfasst den Code GANZ    -> erlaubt,
+  //                         "==" kommt davor und dahinter zu stehen
+  //   `Person_076`          Auswahl endet MITTEN im Code      -> abgelehnt,
+  //                         "==" landete zwischen den Backticks
+  //
+  // Frueher wurde jede Beruehrung abgelehnt. Das machte ganze Zeilen
+  // unkommentierbar, sobald irgendwo ein Code-Schnipsel darin vorkam - in
+  // den Daily-Notizen stehen die Pseudonyme genau so (`Person_076`), also
+  // praktisch jede Zeile. Einzelne Woerter daneben gingen weiterhin, was den
+  // Fehler willkuerlich wirken liess.
+  if (splitsCode(tokens, relStart, relEnd)) return 'insideCode';
 
   // Eine bestehende Hervorhebung nur teilweise zu ueberdecken, fuehrt zu
   // verschachtelten Markern ohne Nutzen. Vollstaendig darin liegend ist
@@ -211,18 +257,51 @@ export function normalizeSelection(
   );
   if (partial) return 'partialHighlight';
 
+  // Eine bestehende Hervorhebung VOLLSTAENDIG einzuschliessen ist ebenfalls
+  // nicht moeglich: "==aussen ==innen== aussen==" hat keine eindeutige
+  // Lesart, der Tokenizer beendet die neue Hervorhebung am ersten inneren
+  // "==". Das Entfernen loeschte danach die falschen Zeichen.
+  //
+  // Frueher konnte dieser Fall gar nicht auftreten, weil solche Zeilen meist
+  // schon an der Code-Regel scheiterten; seit die nur noch echtes
+  // Zerschneiden ablehnt, muss er hier ausdruecklich stehen. In den
+  // Daily-Notizen sind das die Aufgaben, die bereits eine kommentierte
+  // Hervorhebung tragen.
+  const encloses = tokens.some(
+    (t) => t.kind === 'highlight' && relStart <= t.start && relEnd >= t.end,
+  );
+  if (encloses) return 'partialHighlight';
+
   return { start, end, block };
 }
 
-function overlapsKind(
-  tokens: InlineToken[],
-  start: number,
-  end: number,
-  kind: InlineToken['kind'],
-): boolean {
+/**
+ * Zerschneidet die Auswahl einen Inline-Code-Bereich?
+ *
+ * Wahr genau dann, wenn EINE der beiden Grenzen ECHT innerhalb eines
+ * code-Tokens liegt (strikt zwischen start und end). Die Grenzen selbst
+ * zaehlen nicht als "innerhalb": eine Auswahl, die genau am Code beginnt
+ * oder endet, umschliesst ihn vollstaendig, und die Marker landen davor
+ * bzw. dahinter.
+ *
+ * Damit bleibt der Code-Inhalt unantastbar - nur die frueher zusaetzlich
+ * abgelehnten Faelle "Auswahl enthaelt Code komplett" sind jetzt erlaubt.
+ */
+function splitsCode(tokens: InlineToken[], start: number, end: number): boolean {
   for (const t of tokens) {
-    if (t.kind === kind && start < t.end && end > t.start) return true;
-    if ('children' in t && t.children && overlapsKind(t.children, start, end, kind)) return true;
+    if (t.kind === 'code') {
+      // Grenze ECHT innerhalb: "==" landete zwischen den Backticks.
+      if ((start > t.start && start < t.end) || (end > t.start && end < t.end)) return true;
+      // Code VOLLSTAENDIG umschlossen ist grundsaetzlich in Ordnung - ausser
+      // der Code enthaelt selbst "==". Dann liest der Tokenizer die neue
+      // Hervorhebung beim naechsten Rendern an der falschen Stelle: aus
+      // "==`a==b`==" wird nicht der ganze Bereich, sondern das "==" MITTEN im
+      // Code als Ende gedeutet. Entfernen wuerde danach die falschen Zeichen
+      // loeschen und den Zellinhalt zerstoeren ("`ab` in Backticks==").
+      // Genau diesen Rundlauf prueft check-invariants.mjs [6].
+      if (start <= t.start && end >= t.end && t.text.includes('==')) return true;
+    }
+    if ('children' in t && t.children && splitsCode(t.children, start, end)) return true;
   }
   return false;
 }
