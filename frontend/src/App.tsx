@@ -6,6 +6,9 @@ import { TopBar } from './components/TopBar';
 import type { AppView } from './components/TopBar';
 import { AzureBoardsView } from './components/AzureBoardsView';
 import { WorkspacesView } from './components/WorkspacesView';
+import { ViewsView } from './components/ViewsView';
+import type { ViewId } from './api/viewsTypes';
+import { useViews } from './hooks/useViews';
 import { useContacts } from './hooks/useContacts';
 import { usePersonRegister } from './hooks/usePersonRegister';
 import { useProjekte } from './hooks/useProjekte';
@@ -43,6 +46,12 @@ export function App() {
   const { workspaces, loaded: workspacesLoaded } = useWorkspaces();
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null);
 
+  // Dieselbe Aufteilung wie bei den Workspaces: die TopBar braucht die Liste
+  // fuer ihr Aufklappmenue, die Ansicht denselben Stand. reload() nach jedem
+  // erfolgreichen Neuerzeugen, damit "Stand:" und Verfuegbarkeit stimmen.
+  const { views, loaded: viewsLoaded, reload: reloadViews } = useViews();
+  const [activeView, setActiveView] = useState<ViewId | null>(null);
+
   const handleStatusChange = useCallback((tableId: string, status: TableStatus) => {
     setStatusById((prev) => ({ ...prev, [tableId]: status }));
   }, []);
@@ -73,6 +82,9 @@ export function App() {
         workspaces={workspaces}
         activeWorkspace={activeWorkspace}
         onWorkspaceSelect={setActiveWorkspace}
+        views={views}
+        activeView={activeView}
+        onViewSelect={setActiveView}
       />
       {/* Bewusst eine Kette EXPLIZITER Zweige und kein Ternary mit Else-Fall:
           der frueher hier stehende Else-Zweig rendete AzureBoardsView,
@@ -104,6 +116,14 @@ export function App() {
           activeWorkspace={activeWorkspace}
           contacts={contacts}
           personNames={personNames}
+        />
+      )}
+      {view === 'views' && (
+        <ViewsView
+          views={views}
+          viewsLoaded={viewsLoaded}
+          activeView={activeView}
+          onViewsReload={reloadViews}
         />
       )}
       {view === 'notes' && <StatusBar tables={Object.values(statusById)} hint={HINT} />}

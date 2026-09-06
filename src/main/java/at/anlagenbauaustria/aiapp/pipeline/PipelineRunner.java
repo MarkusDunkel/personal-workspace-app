@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -21,7 +22,14 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class PipelineRunner {
 
-    private static final long TIMEOUT_MINUTES = 5;
+    /**
+     * Voreinstellung fuer alle Laeufe, die kein eigenes Limit mitgeben.
+     * Bewusst knapp: ein haengender Ingest-/Import-Lauf soll frueh auffallen.
+     * Laeufe, die von Natur aus laenger dauern (z.B. das Neuerzeugen einer
+     * Ansicht: ein Python-Prozess je Datei plus Rendern), geben ihr Limit
+     * ueber die Ueberladung selbst vor, statt diesen Wert fuer alle anzuheben.
+     */
+    private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(5);
 
     // Windows hat oft mehrere "bash"-Kandidaten im PATH (WSL, App-Execution-
     // Alias, Git Bash), auf unterschiedlichen Installationspfaden je nach
@@ -66,11 +74,19 @@ public class PipelineRunner {
      * zum ai-vault-Root aus, mit optionalen zusaetzlichen Argumenten.
      */
     public PipelineResult runScript(String relativeScriptPath, String... args) {
+        return runScript(DEFAULT_TIMEOUT, relativeScriptPath, args);
+    }
+
+    /**
+     * Wie {@link #runScript(String, String...)}, aber mit eigenem Zeitlimit -
+     * fuer Laeufe, die bekanntermaassen laenger brauchen als der Standardwert.
+     */
+    public PipelineResult runScript(Duration timeout, String relativeScriptPath, String... args) {
         List<String> command = new ArrayList<>();
         command.add(bashExecutable);
         command.add(relativeScriptPath);
         command.addAll(List.of(args));
-        return run(command);
+        return run(timeout, command);
     }
 
     /**
@@ -82,10 +98,10 @@ public class PipelineRunner {
         command.add("-m");
         command.add(module);
         command.addAll(List.of(args));
-        return run(command);
+        return run(DEFAULT_TIMEOUT, command);
     }
 
-    private PipelineResult run(List<String> command) {
+    private PipelineResult run(Duration timeout, List<String> command) {
         ProcessBuilder builder = new ProcessBuilder(command)
                 .directory(aivaultRoot.toFile())
                 .redirectErrorStream(true);
@@ -106,7 +122,7 @@ public class PipelineRunner {
 
         boolean finished;
         try {
-            finished = process.waitFor(TIMEOUT_MINUTES, TimeUnit.MINUTES);
+            finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new PipelineExecutionException("Pipeline-Lauf wurde unterbrochen: " + command, output);
@@ -115,7 +131,7 @@ public class PipelineRunner {
         if (!finished) {
             process.destroyForcibly();
             throw new PipelineExecutionException(
-                    "Pipeline-Lauf hat das Zeitlimit von " + TIMEOUT_MINUTES + " Minuten ueberschritten: " + command,
+                    "Pipeline-Lauf hat das Zeitlimit von " + timeout.toMinutes() + " Minuten ueberschritten: " + command,
                     output);
         }
 

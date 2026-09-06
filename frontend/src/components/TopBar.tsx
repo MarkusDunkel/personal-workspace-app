@@ -1,9 +1,10 @@
+import type { ViewId, ViewInfo } from '../api/viewsTypes';
 import type { WorkspaceInfo } from '../api/workspaceTypes';
 import { LabeledAutocompleteInput } from './LabeledAutocompleteInput';
 import { SubmitFlow } from './submit/SubmitFlow';
 import { TopBarMenuDropdown } from './TopBarMenuDropdown';
 
-export type AppView = 'notes' | 'azureBoards' | 'workspaces';
+export type AppView = 'notes' | 'azureBoards' | 'workspaces' | 'views';
 
 interface TopBarProps {
   view: AppView;
@@ -18,6 +19,9 @@ interface TopBarProps {
   workspaces: WorkspaceInfo[];
   activeWorkspace: string | null;
   onWorkspaceSelect: (name: string) => void;
+  views: ViewInfo[];
+  activeView: ViewId | null;
+  onViewSelect: (id: ViewId) => void;
 }
 
 export function TopBar({
@@ -33,6 +37,9 @@ export function TopBar({
   workspaces,
   activeWorkspace,
   onWorkspaceSelect,
+  views,
+  activeView,
+  onViewSelect,
 }: TopBarProps) {
   return (
     <header className="topbar">
@@ -64,6 +71,20 @@ export function TopBar({
           onSelect={onWorkspaceSelect}
           onActivate={() => onViewChange('workspaces')}
           emptyLabel="Keine Workspaces in 2_ai-ready/workspaces"
+        />
+        {/* Wie bei den Workspaces ein aufklappbarer Menuepunkt statt drei
+            weiterer Schaltflaechen: es sind mehrere Dokumente mit bleibender
+            Auswahl, und die Topbar bliebe sonst sehr breit. Erzeugt werden
+            die Ansichten von den ai-vault-Skripten - hier wird nur
+            ausgewaehlt, angesehen und neu erzeugt. */}
+        <TopBarMenuDropdown
+          label="Ansichten"
+          active={view === 'views'}
+          items={views.map((v) => ({ id: v.id, label: v.label }))}
+          selectedId={activeView}
+          onSelect={(id) => onViewSelect(id as ViewId)}
+          onActivate={() => onViewChange('views')}
+          emptyLabel="Keine Ansichten in 5_output"
         />
       </nav>
       {view === 'notes' && (
