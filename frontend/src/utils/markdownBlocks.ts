@@ -26,7 +26,33 @@ export type BlockKind =
   | 'quote'
   | 'blank'
   | 'hr'
+  | 'table'
   | 'verbatim';
+
+/** Spaltenausrichtung aus der Trennzeile (:--- / :---: / ---:). */
+export type TableAlign = 'left' | 'center' | 'right' | null;
+
+/**
+ * EINE Zelle. Alle Offsets sind BLOCKRELATIV, wie bei InlineToken - der
+ * Aufrufer rechnet mit block.start um.
+ *
+ * Es gilt zwingend, und das Pruefskript sichert es ab:
+ *     block.source.slice(textStart, textEnd) === text
+ */
+export interface MdTableCell {
+  /** Erstes Zeichen des Inhalts, hinter dem Auffuell-Leerraum. */
+  textStart: number;
+  /** Hinter dem letzten Zeichen (exklusiv), vor dem Auffuell-Leerraum. */
+  textEnd: number;
+  text: string;
+}
+
+export interface MdTableRow {
+  kind: 'header' | 'delimiter' | 'body';
+  /** Blockrelativer Offset des Zeilenanfangs. */
+  start: number;
+  cells: MdTableCell[];
+}
 
 export interface MdBlock {
   kind: BlockKind;
@@ -42,6 +68,27 @@ export interface MdBlock {
   checked?: boolean;
   /** Nur listItem: geordnete Liste ("1." statt "-"). */
   ordered?: boolean;
+  /** Nur table: Zeilen samt Zellen, alle Offsets blockrelativ. */
+  rows?: MdTableRow[];
+  /** Nur table: Ausrichtung je Spalte, aus der Trennzeile. */
+  align?: TableAlign[];
+  /**
+   * Nur codeFence/verbatim: die Sprache aus der Info-Zeile ("```json" wird
+   * zu "json"), kleingeschrieben. Bei verbatim (YAML-Frontmatter) fest
+   * "yaml". undefined, wenn keine angegeben ist.
+   */
+  lang?: string;
+  /**
+   * Nur codeFence/verbatim: Offsets des INHALTS ohne die Zaun-Zeilen,
+   * absolut im Dokument.
+   *
+   * ZUSAETZLICH zu start/end, niemals an deren Stelle: die tragende
+   * Invariante bezieht sich weiterhin auf den GANZEN Block samt Zaeunen,
+   * sonst wuerde replaceBlock die Zaeune wegschreiben. Es gilt
+   * start <= innerStart <= innerEnd <= end.
+   */
+  innerStart?: number;
+  innerEnd?: number;
 }
 
 /** Zeilen, die einen Code-Block oeffnen bzw. schliessen. */
@@ -54,13 +101,42 @@ const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+/;
 /** Aufgabenliste: "- [ ] " oder "- [x] ". */
 const TASK = /^(\s*)[-*+]\s+\[([ xX])\]\s*/;
 const QUOTE = /^\s*>/;
+/** Zaun samt optionaler Info-Zeichenkette: ```json, ~~~ts. */
+const FENCE_INFO = /^\s*(?:```|~~~)\s*([^\s`]*)/;
+/** Trennzeile einer Tabelle: |---|:---:|---:| */
+const TABLE_DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/**
+ * Eine Tabelle beginnt nur, wenn auf die Kopfzeile eine gueltige Trennzeile
+ * folgt - so verlangt es GFM, und es ist zugleich der Schutz davor, eine
+ * gewoehnliche Textzeile mit einem Strich darin als Tabelle zu lesen.
+ *
+ * Braucht daher Vorausschau auf die NAECHSTE Zeile und arbeitet deshalb auf
+ * dem Zeilenfeld statt auf einer einzelnen Zeile.
+ */
+function isTableStart(lines: string[], i: number): boolean {
+  if (i + 1 >= lines.length) return false;
+  const line = lines[i];
+  if (line.trim() === '' || line.indexOf('|') === -1) return false;
+  const next = lines[i + 1];
+  // Der Bindestrich-Test verhindert, dass eine Zeile aus lauter Pipes
+  // ("| |") als Trennzeile durchgeht.
+  return next.indexOf('-') !== -1 && TABLE_DELIM.test(next);
+}
 
 /**
  * Ein Absatz endet an einer Leerzeile oder dort, wo ein Konstrukt beginnt,
  * das selbst ein eigener Block ist. Ohne diese Pruefung wuerde eine
  * Ueberschrift direkt unter einer Textzeile in den Absatz gezogen.
+ *
+ * Bekommt das ganze Zeilenfeld, weil die Tabellenerkennung Vorausschau
+ * braucht. Genau hier lag ein Fehler: eine Tabelle unmittelbar unter einer
+ * Textzeile wurde in deren Absatz gezogen und danach als Fliesstext
+ * gedeutet. Geprueft wird bewusst isTableStart und nicht blosses "|", damit
+ * ein Absatz mit einem Pipe im Text nicht faelschlich zerteilt wird.
  */
-function startsNewBlock(line: string): boolean {
+function startsNewBlock(lines: string[], idx: number): boolean {
+  const line = lines[idx];
   return (
     line.trim() === ''
     || FENCE.test(line)
@@ -68,7 +144,89 @@ function startsNewBlock(line: string): boolean {
     || HR.test(line)
     || LIST_ITEM.test(line)
     || QUOTE.test(line)
+    || isTableStart(lines, idx)
   );
+}
+
+/** Ausrichtung aus einer Zelle der Trennzeile. */
+function parseAlign(cell: string): TableAlign {
+  const t = cell.trim();
+  const left = t.startsWith(':');
+  const right = t.endsWith(':');
+  if (left && right) return 'center';
+  if (right) return 'right';
+  if (left) return 'left';
+  return null;
+}
+
+/**
+ * Zerlegt EINE Tabellenzeile in Zellen. `rowStart` ist der blockrelative
+ * Offset des Zeilenanfangs; alle Rueckgabe-Offsets sind ebenfalls
+ * blockrelativ.
+ *
+ * Zeichenweise statt per split/trim, und das ist der springende Punkt: der
+ * Auffuell-Leerraum wird uebersprungen, indem der OFFSET vorrueckt, nicht
+ * indem die Zeichenkette umgeschrieben wird. Nur so gilt hinterher
+ * block.source.slice(textStart, textEnd) === text.
+ */
+function splitRowCells(line: string, rowStart: number): MdTableCell[] {
+  const cells: MdTableCell[] = [];
+  let i = 0;
+  // Fuehrender Leerraum und ein optionaler fuehrender Pipe gehoeren zu
+  // keiner Zelle.
+  while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1;
+  if (line[i] === '|') i += 1;
+
+  let cellFrom = i;
+  const flush = (to: number) => {
+    let s = cellFrom;
+    let e = to;
+    while (s < e && (line[s] === ' ' || line[s] === '\t')) s += 1;
+    // Das \r einer CRLF-Datei gehoert zur Zeile (siehe splitBlocks), darf
+    // aber nicht als Zeichen im Zellinhalt landen - es wird deshalb wie
+    // Leerraum abgeschnitten, und textEnd ist darueber ehrlich.
+    while (e > s && (line[e - 1] === ' ' || line[e - 1] === '\t' || line[e - 1] === '\r')) e -= 1;
+    cells.push({ textStart: rowStart + s, textEnd: rowStart + e, text: line.slice(s, e) });
+  };
+
+  while (i < line.length) {
+    // "\|" ist KEINE Zellgrenze. Es bleibt aber als zwei Zeichen im Text
+    // stehen: es zu entschaerfen wuerde jeden folgenden Offset dieser Zelle
+    // um eins verschieben und die Abbildung auf die Quelle still zerstoeren.
+    if (line[i] === '\\' && line[i + 1] === '|') {
+      i += 2;
+      continue;
+    }
+    if (line[i] === '|') {
+      flush(i);
+      i += 1;
+      cellFrom = i;
+      continue;
+    }
+    i += 1;
+  }
+  // Was hinter dem letzten Pipe steht, ist nur dann eine Zelle, wenn dort
+  // mehr als Leerraum folgt - sonst war es der abschliessende Pipe.
+  if (line.slice(cellFrom).trim() !== '') flush(line.length);
+  return cells;
+}
+
+/**
+ * Baut Zeilen und Ausrichtung einer Tabelle. `tableLines` sind die Zeilen
+ * des Blocks, `lineStarts` deren blockrelative Anfangsoffsets.
+ */
+function parseTable(
+  tableLines: string[],
+  lineStarts: number[],
+): { rows: MdTableRow[]; align: TableAlign[] } {
+  const rows: MdTableRow[] = [];
+  for (let n = 0; n < tableLines.length; n += 1) {
+    const kind: MdTableRow['kind'] = n === 0 ? 'header' : n === 1 ? 'delimiter' : 'body';
+    rows.push({ kind, start: lineStarts[n], cells: splitRowCells(tableLines[n], lineStarts[n]) });
+  }
+  const delimiter = rows[1];
+  const align = delimiter ? delimiter.cells.map((c) => parseAlign(c.text)) : [];
+  return { rows, align };
 }
 
 export function splitBlocks(source: string): MdBlock[] {
@@ -113,7 +271,16 @@ export function splitBlocks(source: string): MdBlock[] {
       }
     }
     if (close !== -1) {
-      push('verbatim', 0, close);
+      // Frontmatter ist per Definition YAML und traegt keine Info-Zeile -
+      // die Sprache wird hier gesetzt, nicht gelesen. Die Begrenzer sind
+      // "---" statt eines Zauns, deshalb rechnet dieser Zweig die
+      // Inhaltsgrenzen selbst aus.
+      const fmInner = lines[0].length + 1;
+      push('verbatim', 0, close, {
+        lang: 'yaml',
+        innerStart: Math.min(fmInner, Math.max(fmInner, lineOffsets[close] - 1)),
+        innerEnd: Math.max(fmInner, lineOffsets[close] - 1),
+      });
       i = close + 1;
     }
   }
@@ -135,7 +302,25 @@ export function splitBlocks(source: string): MdBlock[] {
         }
         close = j;
       }
-      push('codeFence', i, close);
+      const info = FENCE_INFO.exec(line);
+      const lang = info && info[1] ? info[1].toLowerCase() : undefined;
+      // Inhalt beginnt hinter dem \n der Oeffnungszeile.
+      const innerStart = lineOffsets[i] + lines[i].length + 1;
+      // Wurde der Zaun wirklich geschlossen, endet der Inhalt vor dessen \n;
+      // sonst laeuft er bis zum Blockende.
+      const closed = close > i && lines[close].trimStart().startsWith(marker);
+      const rawInnerEnd = closed
+        ? lineOffsets[close] - 1
+        : lineOffsets[close] + lines[close].length;
+      // Klemmen, sonst entsteht bei einem LEEREN Zaun (```json direkt
+      // gefolgt von ```) ein umgekehrter Bereich und damit ein still
+      // falscher Ausschnitt.
+      const innerEnd = Math.max(innerStart, rawInnerEnd);
+      push('codeFence', i, close, {
+        lang,
+        innerStart: Math.min(innerStart, innerEnd),
+        innerEnd,
+      });
       i = close + 1;
       continue;
     }
@@ -143,6 +328,27 @@ export function splitBlocks(source: string): MdBlock[] {
     if (line.trim() === '') {
       push('blank', i, i);
       i += 1;
+      continue;
+    }
+
+    // Tabellen VOR hr/Liste/Zitat pruefen: eine Trennzeile wie "|---|---|"
+    // soll nicht als waagerechte Linie zerfallen. Die Vorausschau in
+    // isTableStart macht die Erkennung sicher genug fuer diese Stellung.
+    if (isTableStart(lines, i)) {
+      let last = i + 1; // Kopf- plus Trennzeile
+      while (
+        last + 1 < lines.length
+        && lines[last + 1].trim() !== ''
+        && lines[last + 1].indexOf('|') !== -1
+      ) {
+        last += 1;
+      }
+      const tableLines = lines.slice(i, last + 1);
+      const base = lineOffsets[i];
+      const lineStarts = tableLines.map((_, n) => lineOffsets[i + n] - base);
+      const { rows, align } = parseTable(tableLines, lineStarts);
+      push('table', i, last, { rows, align });
+      i = last + 1;
       continue;
     }
 
@@ -196,7 +402,7 @@ export function splitBlocks(source: string): MdBlock[] {
     // Absatz: laeuft bis zur naechsten Zeile, die selbst einen Block
     // eroeffnet.
     let last = i;
-    while (last + 1 < lines.length && !startsNewBlock(lines[last + 1])) last += 1;
+    while (last + 1 < lines.length && !startsNewBlock(lines, last + 1)) last += 1;
     push('paragraph', i, last);
     i = last + 1;
   }

@@ -7,9 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "check": "node --experimental-strip-types --import ./scripts/ts-resolver-register.mjs scripts/check-invariants.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
+    "highlight.js": "^11.12.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

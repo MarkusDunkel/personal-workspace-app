@@ -6,7 +6,28 @@
     --error: #c0392b;
     --accent: #3a6ea5;
     --border: #d8d6cf;
-    --font-mono: "Cascadia Code", "Consolas", monospace;
+
+    /* Zwei Schriften statt einer, nach dem Vorbild von VS Code: die
+       Oberflaeche proportional (dort Segoe UI), nur Quelltext und alles,
+       was auf Zeichenbreite ausgerichtet ist, dicktengleich. Vorher trug
+       die ganze Anwendung die Editor-Schrift, was den Fliesstext unnoetig
+       schwer wirken liess. Bewusst nur Systemschriften - kein Webfont,
+       also kein Ladezeit-Risiko und keine externe Abhaengigkeit. */
+    --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui,
+               -apple-system, "Helvetica Neue", Arial, sans-serif;
+    /* Cascadia MONO, nicht Code: dieselbe Schrift ohne Ligaturen, die in
+       Quelltext eher stoeren als helfen. */
+    --font-mono: "Cascadia Mono", "Cascadia Code", Consolas,
+                 "SF Mono", "DejaVu Sans Mono", monospace;
+
+    /* Farben fuer eingefaerbten Quelltext (siehe highlightCode.tsx).
+       Bewusst nur drei zusaetzliche Toene statt eines fertigen
+       highlight.js-Themes: die Anwendung faerbt sonst alles aus denselben
+       wenigen Variablen, und ein Fremdthema wuerde im Dunkelmodus eine
+       zweite, unabhaengige Farbwelt einfuehren. */
+    --code-keyword: #8250df;
+    --code-string: #0a7b53;
+    --code-number: #b3541e;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -18,16 +39,32 @@
         --error: #e07a68;
         --accent: #6fa3d8;
         --border: #3a3a34;
+
+        --code-keyword: #c39ae6;
+        --code-string: #6cc39b;
+        --code-number: #e0a06a;
     }
 }
 
 * { box-sizing: border-box; }
 
+/* Alle Groessen im Blatt sind rem und damit relativ hierzu. Die
+   Oberflaechenschrift traegt bei gleicher rem-Groesse weniger Hoehe als
+   die fruehere Cascadia Code - dieser eine Wert gleicht das global aus,
+   statt ~65 einzelne font-size-Regeln anzufassen. Prozent statt px, damit
+   eine abweichende Schriftgroesseneinstellung des Browsers wirksam bleibt. */
+html {
+    font-size: 106.25%;
+}
+
 body {
     margin: 0;
     background: var(--bg);
     color: var(--fg);
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
+    /* Kein kuenstlich verzerrtes Fett/Kursiv, falls nur ein statischer
+       Schnitt vorliegt - die Schriften oben bringen echte Schnitte mit. */
+    font-synthesis: none;
     height: 100vh;
 }
 
@@ -58,7 +95,7 @@ body {
 }
 
 .topbar-menu-item {
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.8rem;
     color: var(--muted);
     background: transparent;
@@ -161,7 +198,12 @@ body {
     min-width: 0;
     border: 1px solid var(--border);
     padding: 0;
-    min-height: 2rem;
+    /* 1.9 statt 2rem: die Wurzel-Schriftgroesse wurde um 6.25% angehoben,
+       damit die proportionale Oberflaechenschrift nicht kleiner wirkt als
+       die fruehere Monospace. Ohne diese Korrektur waeren die Zeilen ebenso
+       mitgewachsen und es paesste weniger auf den Bildschirm. Muss zur
+       Hoehe von .cell-input passen. */
+    min-height: 1.9rem;
     outline: none;
     position: relative;
 }
@@ -183,6 +225,19 @@ body {
 
 .data-grid-cell--bis {
     flex: 0 0 8rem;
+}
+
+/* Gleich breite Ziffern fuer Datums- und Zahlenangaben: die proportionale
+   Oberflaechenschrift setzt Ziffern unterschiedlich breit, wodurch
+   untereinander stehende Werte optisch springen. Ersetzt genau das, was
+   die Monospace-Schrift vorher nebenbei lieferte. */
+.data-grid-cell--von .cell-display,
+.data-grid-cell--von .cell-input,
+.data-grid-cell--bis .cell-display,
+.data-grid-cell--bis .cell-input,
+.date-picker-preview,
+.statusbar-table {
+    font-variant-numeric: tabular-nums;
 }
 
 .data-grid-cell.focused {
@@ -325,10 +380,11 @@ body {
        oben, wo .cell-display (ein einfaches <span>) im Anzeigezustand
        natuerlicherweise bleibt. Feste Hoehe = gleiches Verhalten wie vorher. */
     width: 100%;
-    height: 2rem;
+    /* Muss mit min-height von .data-grid-cell uebereinstimmen. */
+    height: 1.9rem;
     box-sizing: border-box;
     padding: 0.35rem 0.5rem;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 1rem;
     background: var(--bg);
     color: var(--fg);
@@ -356,6 +412,11 @@ body {
     width: 100%;
     box-sizing: border-box;
     padding: 0.35rem 0.5rem;
+    /* MUSS dicktengleich bleiben, das ist keine Stilfrage: toDisplayText in
+       bulletText.ts baut die Einruecktiefe aus echten Leerzeichen (drei je
+       Stufe) und setzt das Bullet-Symbol als gewoehnliches Zeichen davor.
+       Mit proportionaler Schrift waere ein Leerzeichen schmaler als das
+       Symbol, und die Stufen stuenden nicht mehr untereinander. */
     font-family: var(--font-mono);
     font-size: 1rem;
     line-height: 1.4;
@@ -503,7 +564,10 @@ body {
     border: 1px solid transparent;
     color: var(--fg);
     cursor: pointer;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
+    /* Gleich breite Ziffern: der Kalender ist ein Zahlenraster und wuerde
+       mit proportionalen Ziffern sichtbar springen. */
+    font-variant-numeric: tabular-nums;
     font-size: 0.85rem;
     padding: 0.3rem 0;
     text-align: center;
@@ -543,7 +607,7 @@ body {
     border: none;
     color: var(--bg);
     cursor: pointer;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.8rem;
     padding: 0.35rem 0.9rem;
 }
@@ -586,6 +650,9 @@ body {
     width: 100%;
     height: 100%;
     resize: none;
+    /* Bearbeitet dieselbe "Inhalt"-Spalte wie die Bullet-Zelle, hier im
+       Rohformat mit Tabulator-Einzug - bleibt aus demselben Grund
+       dicktengleich. */
     font-family: var(--font-mono);
     font-size: 1rem;
     background: var(--bg);
@@ -640,7 +707,7 @@ body {
 }
 
 .submit-modal-input {
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     background: var(--bg);
     color: var(--fg);
     border: 1px solid var(--border);
@@ -674,7 +741,7 @@ body {
 .submit-modal-select {
     flex: 1;
     min-width: 0;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     background: var(--bg);
     color: var(--fg);
     border: 1px solid var(--border);
@@ -686,7 +753,7 @@ body {
     border: 1px solid var(--border);
     color: var(--fg);
     cursor: pointer;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     padding: 0.45rem 0.75rem;
 }
 
@@ -812,7 +879,7 @@ body {
 
 .azb-primary-button {
     align-self: flex-start;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.85rem;
     padding: 0.4rem 1rem;
     border: 1px solid var(--accent);
@@ -829,7 +896,7 @@ body {
 
 .azb-apply-button {
     align-self: flex-start;
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     font-size: 0.85rem;
     padding: 0.4rem 1rem;
     margin-top: 0.6rem;
@@ -851,7 +918,7 @@ body {
 }
 
 .azb-digest-category select {
-    font-family: var(--font-mono);
+    font-family: var(--font-ui);
     margin-left: 0.4rem;
 }
 
@@ -880,6 +947,9 @@ body {
 }
 
 .azb-plan-markdown {
+    /* Roher Markdown-Text - erbt sonst die Oberflaechenschrift. Der
+       Zeilenumbruch bleibt hier bewusst erhalten (Fliesstext, kein Code). */
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     max-height: 20rem;
     overflow-y: auto;
@@ -895,6 +965,7 @@ body {
 }
 
 .azb-log pre {
+    font-family: var(--font-mono);
     white-space: pre-wrap;
     word-break: break-word;
     max-height: 15rem;
@@ -1204,7 +1275,14 @@ body {
     width: 100%;
     margin: 0.5rem 0;
     padding: 0.4rem;
-    font: inherit;
+    /* Der Rohmodus IST der Markdown-Editor und braucht daher die
+       dicktengleiche Schrift - Einrueckung und Code-Zaeune waeren mit der
+       Oberflaechenschrift unleserlich. Hier stand "font: inherit", was
+       richtig war, solange die ganze Anwendung monospace war; die
+       Kurzform setzt font-family aber ZURUECK und wuerde jetzt die
+       proportionale Schrift hereinziehen. Deshalb ausdruecklich nur
+       font-family, damit die folgenden Angaben wirksam bleiben. */
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     line-height: 1.55;
     color: var(--fg);
@@ -1255,17 +1333,111 @@ body {
     color: var(--muted);
 }
 
-/* Code-Bloecke, Frontmatter und Tabellen bleiben woertlich - ihr Inhalt darf
-   nicht als Markdown gedeutet werden. */
+/* Code-Bloecke und Frontmatter: ihr Inhalt darf nicht als Markdown gedeutet
+   werden. Die Zaun-Zeilen selbst werden nicht mitgezeigt (siehe
+   CodeBlockView), eingefaerbt wird ueber highlight.js. */
 .ws-block-code {
-    white-space: pre-wrap;
-    word-break: break-word;
+    /* Schieben statt umbrechen: "pre-wrap" plus "word-break: break-word"
+       zerriss lange JSON-Zeilen mitten im Token und machte die Struktur
+       unlesbar. Code wird waagerecht gescrollt. */
+    white-space: pre;
+    overflow-x: auto;
     margin: 0.4rem 0 0.6rem;
     padding: 0.4rem 0.6rem;
     background: color-mix(in srgb, var(--fg) 4%, transparent);
     border-radius: 0.25rem;
+    font-family: var(--font-mono);
     font-size: 0.78rem;
+    /* Tabulatoren sonst viel zu breit eingerueckt. */
+    tab-size: 2;
 }
+
+/* Das <code> darin traegt keine eigene Optik - es ist nur die semantisch
+   richtige Huelle. "font: inherit" holt bewusst die Schrift des <pre>,
+   sonst schlaegt die Standardschrift des Browsers fuer <code> durch. */
+.ws-block-code code {
+    font: inherit;
+    background: none;
+    padding: 0;
+}
+
+/* Einfaerbung von Quelltext. Die Klassennamen stammen von highlight.js
+   ("hljs-" plus Bereichsname), die Farben ausschliesslich aus den
+   :root-Variablen - dadurch greift der Dunkelmodus ohne eigene Regeln.
+   Nicht aufgefuehrte Bereiche bleiben absichtlich in normaler Textfarbe:
+   lieber wenige klare Unterscheidungen als ein Farbkasten. */
+.ws-block-code .hljs-comment,
+.ws-block-code .hljs-quote {
+    color: var(--muted);
+    font-style: italic;
+}
+
+.ws-block-code .hljs-keyword,
+.ws-block-code .hljs-selector-tag,
+.ws-block-code .hljs-literal,
+.ws-block-code .hljs-built_in,
+.ws-block-code .hljs-type {
+    color: var(--code-keyword);
+}
+
+.ws-block-code .hljs-string,
+.ws-block-code .hljs-attr,
+.ws-block-code .hljs-symbol,
+.ws-block-code .hljs-meta-string {
+    color: var(--code-string);
+}
+
+.ws-block-code .hljs-number,
+.ws-block-code .hljs-regexp,
+.ws-block-code .hljs-link {
+    color: var(--code-number);
+}
+
+.ws-block-code .hljs-title,
+.ws-block-code .hljs-name,
+.ws-block-code .hljs-section {
+    color: var(--accent);
+}
+
+.ws-block-code .hljs-meta,
+.ws-block-code .hljs-doctag {
+    color: var(--muted);
+}
+
+.ws-block-code .hljs-deletion { color: var(--error); }
+.ws-block-code .hljs-addition { color: var(--code-string); }
+
+.ws-block-code .hljs-emphasis { font-style: italic; }
+.ws-block-code .hljs-strong { font-weight: bold; }
+
+/* Tabellen im Dokument. Zellen brechen um (in dieser Anwendung stehen dort
+   ganze Saetze), die Tabelle selbst scrollt waagerecht, falls sie doch
+   einmal zu breit wird. */
+.ws-block-table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.5rem 0 0.7rem;
+    font-size: 0.78rem;
+    display: block;
+    overflow-x: auto;
+}
+
+.ws-block-table th,
+.ws-block-table td {
+    border: 1px solid var(--border);
+    padding: 0.25rem 0.45rem;
+    text-align: left;
+    /* Bei ungleich langen Zellen sollen die Texte oben beginnen. */
+    vertical-align: top;
+}
+
+.ws-block-table th {
+    font-weight: bold;
+    background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+
+.ws-td--center { text-align: center; }
+.ws-td--right { text-align: right; }
 
 .ws-block-hr {
     border: none;
@@ -1286,6 +1458,7 @@ body {
 }
 
 .ws-inline-code {
+    font-family: var(--font-mono);
     padding: 0 0.2rem;
     background: color-mix(in srgb, var(--fg) 8%, transparent);
     border-radius: 0.15rem;

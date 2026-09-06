@@ -1,7 +1,7 @@
-import type { MdBlock } from './markdownBlocks';
+import type { MdBlock, MdTableCell } from './markdownBlocks';
 import { splitBlocks } from './markdownBlocks';
 import type { InlineToken } from './markdownInline';
-import { tokenizeInline } from './markdownInline';
+import { shift, tokenizeInline } from './markdownInline';
 
 /**
  * Bildet eine Textauswahl im GERENDERTEN Dokument auf Zeichen-Offsets in der
@@ -33,9 +33,53 @@ export interface SourceSelection {
 
 export type SelectionProblem =
   | 'crossBlock'
+  | 'crossCell'
   | 'insideCode'
   | 'partialHighlight'
   | 'empty';
+
+/**
+ * Die Inline-Tokens EINES Blocks, blockrelativ.
+ *
+ * Fuer Tabellen wird JE ZELLE tokenisiert und das Ergebnis um den
+ * Zellanfang verschoben. Das ist kein Feinschliff, sondern notwendig: ueber
+ * den ganzen Block tokenisiert liefe der Tokenizer ueber Zeilenumbrueche und
+ * Pipes hinweg, ein "*" in einer Zelle koennte mit einem "*" drei Zeilen
+ * tiefer paaren, und applyHighlight schriebe eine zellenuebergreifende
+ * Hervorhebung in die Datei.
+ *
+ * Weil die Offsets anschliessend blockrelativ sind, sind Zell-Tokens von
+ * denen eines Absatzes nicht zu unterscheiden - enclosingHighlight,
+ * setComment, removeComment und removeHighlight brauchen deshalb KEINEN
+ * eigenen Zweig fuer Tabellen.
+ *
+ * MarkdownView muss genauso tokenisieren, sonst weicht das Umschalten einer
+ * Hervorhebung von dem ab, was auf dem Bildschirm steht.
+ */
+export function blockTokens(block: MdBlock): InlineToken[] {
+  if (block.kind !== 'table' || !block.rows) return tokenizeInline(block.source);
+  const out: InlineToken[] = [];
+  for (const row of block.rows) {
+    // Die Trennzeile ist reine Syntax und wird nie gerendert.
+    if (row.kind === 'delimiter') continue;
+    for (const cell of row.cells) {
+      out.push(...shift(tokenizeInline(cell.text), cell.textStart));
+    }
+  }
+  return out;
+}
+
+/** Die Zelle, in der ein BLOCKRELATIVER Offset liegt (oder null). */
+function cellAt(block: MdBlock, rel: number): MdTableCell | null {
+  if (!block.rows) return null;
+  for (const row of block.rows) {
+    if (row.kind === 'delimiter') continue;
+    for (const cell of row.cells) {
+      if (rel >= cell.textStart && rel <= cell.textEnd) return cell;
+    }
+  }
+  return null;
+}
 
 /**
  * Rechnet eine DOM-Position (Knoten plus Offset darin) in einen
@@ -137,7 +181,18 @@ export function normalizeSelection(
   while (end > start && /\s/.test(source[end - 1])) end -= 1;
   if (end <= start) return 'empty';
 
-  const tokens = tokenizeInline(block.source);
+  // Eine Hervorhebung darf keine Zellgrenze ueberschreiten - "==" wuerde
+  // sonst ueber einen Pipe hinweg gesetzt und die Tabelle zerstoert. Die
+  // Endprobe nimmt end-1, weil end exklusiv ist und eine Auswahl bis genau
+  // textEnd noch in der Zelle liegt. Ein null-Ergebnis (Auswahl auf einem
+  // Pipe oder in der Trennzeile) wird ebenfalls abgelehnt.
+  if (block.kind === 'table') {
+    const cell = cellAt(block, start - block.start);
+    if (!cell) return 'crossCell';
+    if (cellAt(block, end - 1 - block.start) !== cell) return 'crossCell';
+  }
+
+  const tokens = blockTokens(block);
   const relStart = start - block.start;
   const relEnd = end - block.start;
 
@@ -192,7 +247,9 @@ export function enclosingHighlight(
     }
     return null;
   };
-  return find(tokenizeInline(block.source));
+  // blockTokens statt tokenizeInline: fuer Tabellen wird je Zelle
+  // tokenisiert, genau wie im Renderer.
+  return find(blockTokens(block));
 }
 
 /**

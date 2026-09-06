@@ -66,9 +66,11 @@ export function WorkspaceEditor({ name, title, contacts }: WorkspaceEditorProps)
     setHint(
       selection.problem === 'crossBlock'
         ? 'Markierung muss innerhalb eines Absatzes liegen.'
-        : selection.problem === 'insideCode'
-          ? 'In Code kann nicht hervorgehoben werden.'
-          : 'Markierung überlappt eine bestehende Hervorhebung nur teilweise.',
+        : selection.problem === 'crossCell'
+          ? 'Markierung muss innerhalb einer Tabellenzelle liegen.'
+          : selection.problem === 'insideCode'
+            ? 'In Code kann nicht hervorgehoben werden.'
+            : 'Markierung überlappt eine bestehende Hervorhebung nur teilweise.',
     );
   }, [selection.problem]);
 

@@ -208,8 +208,14 @@ export function tokenizeInline(text: string): InlineToken[] {
  * Verschiebt alle Offsets einer Tokenliste um `delta`. Noetig, weil
  * tokenizeInline rekursiv auf einem AUSSCHNITT arbeitet und dessen Offsets
  * bei 0 beginnen.
+ *
+ * Exportiert, weil Tabellenzellen genauso behandelt werden: jede Zelle wird
+ * fuer sich tokenisiert und das Ergebnis anschliessend um den Zellanfang
+ * verschoben. Dadurch sind Zell-Tokens von denen eines gewoehnlichen
+ * Absatzes nicht zu unterscheiden, und die Offset-Arithmetik in
+ * markdownOffsets.ts gilt unveraendert (siehe blockTokens dort).
  */
-function shift(tokens: InlineToken[], delta: number): InlineToken[] {
+export function shift(tokens: InlineToken[], delta: number): InlineToken[] {
   return tokens.map((t) => {
     const moved = { ...t, start: t.start + delta, end: t.end + delta };
     if ('children' in moved && moved.children) {
