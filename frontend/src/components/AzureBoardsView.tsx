@@ -73,7 +73,26 @@ export function AzureBoardsView() {
             />
           )}
           {ingest.phase === 'applying' && <SubmitProgressModal label="Pseudonymisiere…" />}
-          {ingest.phase === 'done' && <p className="azb-status azb-status-ok">Fertig.</p>}
+          {ingest.phase === 'done' && !ingest.warningMessage && (
+            <p className="azb-status azb-status-ok">Fertig.</p>
+          )}
+          {ingest.phase === 'done' && ingest.warningMessage && (
+            // Erfolgreich, aber der 3-Wege-Merge hat Konflikte gefunden. Der
+            // Import bleibt blockiert (run_import.sh Exit 8), bis der
+            // '_conflicts'-Schluessel in 2_ai-ready entfernt ist.
+            <div className="azb-status azb-status-warn">
+              <p>{ingest.warningMessage}</p>
+              {ingest.conflictFiles.length > 0 && (
+                <ul>
+                  {ingest.conflictFiles.map((file) => (
+                    <li key={file}>
+                      <code>{file}</code>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           {ingest.phase === 'error' && (
             <p className="azb-status azb-status-error">{ingest.errorMessage}</p>
           )}

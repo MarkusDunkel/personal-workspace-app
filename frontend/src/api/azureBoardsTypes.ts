@@ -6,6 +6,12 @@ export interface IngestResult {
   success: boolean;
   log: string | null;
   error: string | null;
+  // Gesetzt, wenn der 3-Wege-Merge Konflikte gemeldet hat (run_merge.sh Exit 5).
+  // Kein Fehler: das Ergebnis ist geschrieben, aber die betroffenen Items
+  // tragen einen '_conflicts'-Schluessel und run_import.sh verweigert die
+  // Planung, solange der stehen bleibt.
+  warning: string | null;
+  conflictFiles: string[];
 }
 
 // SubmitCandidate/KnownPerson/SubmitDecision werden von submitTypes.ts

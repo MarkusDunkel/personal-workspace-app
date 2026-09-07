@@ -47,9 +47,27 @@ public class AzureBoardsService {
     private static final String JSON_PSEUDONYMIZE_PATH = "pipelines/azure_boards/json/_common/run_pseudonymize.sh";
     private static final String JSON_REIDENTIFY_PATH = "pipelines/azure_boards/json/_common/run_reidentify.sh";
     private static final String JSON_IMPORT_PATH_TEMPLATE = "pipelines/azure_boards/json/%s/run_import.sh";
+    private static final String JSON_MERGE_PATH = "pipelines/azure_boards/json/_common/run_merge.sh";
 
     private static final String PLAN_REPORT_PREFIX = "Plan-Report: ";
     private static final String FINISHED_PREFIX = "Fertig: ";
+    private static final String MERGE_CONFLICT_PREFIX = "Merge-Konflikt: ";
+
+    /**
+     * run_merge.sh: gemergt, aber Konflikte offen. KEIN Fehler -- das Ergebnis
+     * ist geschrieben und die Basis fortgeschrieben, es braucht nur eine
+     * Entscheidung des Nutzers in 2_ai-ready. run_import.sh verweigert die
+     * Planung, solange ein "_conflicts"-Schluessel stehen bleibt (Exit 8).
+     */
+    private static final int MERGE_EXIT_CONFLICTS = 5;
+    /** run_merge.sh: Erstlauf, Basis angelegt, kein Merge moeglich. */
+    private static final int MERGE_EXIT_BASELINE = 6;
+    /**
+     * run_merge.sh: der frische Azure-Stand ist unplausibel geschrumpft
+     * (abgebrochener Ingest, falscher Export). Nichts geschrieben, der lokale
+     * Stand liegt unveraendert im Snapshot.
+     */
+    private static final int MERGE_EXIT_IMPLAUSIBLE = 9;
 
     private final PipelineRunner pipelineRunner;
     private final AivaultEnv aivaultEnv;
@@ -103,6 +121,18 @@ public class AzureBoardsService {
         if (!ingestResult.isSuccess()) {
             throw new PipelineExecutionException(
                     "Ingest fehlgeschlagen (Exit-Code " + ingestResult.exitCode() + ")", log.toString());
+        }
+
+        // Lokalen Stand sichern, BEVOR run_pseudonymize.sh in applyIngest()
+        // 2_ai-ready leert und mit dem frischen Azure-Stand ueberschreibt.
+        // Ohne diesen Snapshot gibt es im Merge keine "ours"-Seite und die
+        // lokalen Edits sind verloren.
+        PipelineResult saveLocalResult = run(
+                log, JSON_MERGE_PATH, category.segment(), "--save-local");
+        if (!saveLocalResult.isSuccess()) {
+            throw new PipelineExecutionException(
+                    "Sichern des lokalen Stands fehlgeschlagen (Exit-Code "
+                            + saveLocalResult.exitCode() + ")", log.toString());
         }
 
         Path reviewFile = createTempReviewFile();
@@ -236,6 +266,37 @@ public class AzureBoardsService {
                 return IngestResult.failure(
                         "Pseudonymisierung fehlgeschlagen (Exit-Code " + pseudonymizeResult.exitCode() + ")",
                         log.toString());
+            }
+
+            // 3-Wege-Merge: der in scanForReview() gesicherte lokale Stand,
+            // die Basis des Vorlaufs und der eben geschriebene Azure-Stand.
+            // Exit 5 (Konflikte) und 6 (Erstlauf ohne Basis) sind KEINE
+            // Fehler -- das Ergebnis ist in beiden Faellen geschrieben.
+            PipelineResult mergeResult = run(log, JSON_MERGE_PATH, category.segment(), "--merge");
+            int mergeExit = mergeResult.exitCode();
+            if (mergeExit == MERGE_EXIT_CONFLICTS) {
+                List<String> conflictFiles = extractPrefixedLines(
+                        mergeResult.output(), MERGE_CONFLICT_PREFIX);
+                return IngestResult.successWithWarning(
+                        log.toString(),
+                        conflictFiles.size() + " Datei(en) mit Merge-Konflikten. Die "
+                                + "betroffenen Items tragen einen '_conflicts'-Schluessel: "
+                                + "bitte in 2_ai-ready entscheiden und den Schluessel "
+                                + "entfernen. Der Import bleibt bis dahin blockiert.",
+                        conflictFiles);
+            }
+            if (mergeExit == MERGE_EXIT_IMPLAUSIBLE) {
+                return IngestResult.failure(
+                        "Der aus Azure geholte Stand ist unplausibel klein - der Merge wurde "
+                                + "abgebrochen, es wurde nichts ueberschrieben. Wahrscheinlich "
+                                + "ist der Ingest abgebrochen oder der Export leer geblieben. "
+                                + "Der lokale Stand liegt unveraendert im Snapshot; pruefe das "
+                                + "Log und wiederhole den Ingest.",
+                        log.toString());
+            }
+            if (mergeExit != 0 && mergeExit != MERGE_EXIT_BASELINE) {
+                return IngestResult.failure(
+                        "Merge fehlgeschlagen (Exit-Code " + mergeExit + ")", log.toString());
             }
 
             return IngestResult.success(log.toString());
@@ -398,6 +459,21 @@ public class AzureBoardsService {
                 .reduce((first, second) -> second)
                 .map(line -> line.substring(prefix.length()).trim())
                 .orElse(null);
+    }
+
+    /**
+     * Wie {@link #extractPrefixedLine}, aber fuer ALLE Treffer -- run_merge.sh
+     * schreibt eine "Merge-Konflikt: &lt;datei&gt;"-Zeile je betroffener Datei.
+     */
+    private static List<String> extractPrefixedLines(String output, String prefix) {
+        if (output == null) {
+            return List.of();
+        }
+        return output.lines()
+                .filter(line -> line.startsWith(prefix))
+                .map(line -> line.substring(prefix.length()).trim())
+                .filter(line -> !line.isEmpty())
+                .toList();
     }
 
     private String readReportFile(String reportPath) {

@@ -14,6 +14,10 @@ interface IngestState {
   reviewToken: string | null;
   log: string | null;
   errorMessage: string | null;
+  // Merge-Konflikte (run_merge.sh Exit 5): erfolgreich, braucht aber eine
+  // Entscheidung in 2_ai-ready, bevor importiert werden kann.
+  warningMessage: string | null;
+  conflictFiles: string[];
 }
 
 const initialState: IngestState = {
@@ -26,6 +30,8 @@ const initialState: IngestState = {
   reviewToken: null,
   log: null,
   errorMessage: null,
+  warningMessage: null,
+  conflictFiles: [],
 };
 
 export function useAzureBoardsIngest() {
@@ -43,6 +49,8 @@ export function useAzureBoardsIngest() {
           phase: result.success ? 'done' : 'error',
           log: result.log ?? prev.log,
           errorMessage: result.success ? null : (result.error ?? 'Unbekannter Fehler.'),
+          warningMessage: result.warning ?? null,
+          conflictFiles: result.conflictFiles ?? [],
         }));
         return;
       }
@@ -91,6 +99,8 @@ export function useAzureBoardsIngest() {
           phase: result.success ? 'done' : 'error',
           log: result.log ?? prev.log,
           errorMessage: result.success ? null : (result.error ?? 'Unbekannter Fehler.'),
+          warningMessage: result.warning ?? null,
+          conflictFiles: result.conflictFiles ?? [],
         }));
       } catch (err) {
         setState((prev) => ({
@@ -114,6 +124,8 @@ export function useAzureBoardsIngest() {
     currentIndex: state.currentIndex,
     log: state.log,
     errorMessage: state.errorMessage,
+    warningMessage: state.warningMessage,
+    conflictFiles: state.conflictFiles,
     start,
     decide,
     reset,
