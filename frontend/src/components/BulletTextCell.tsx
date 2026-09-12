@@ -1,12 +1,16 @@
 import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import type { CellHandle, CellProps } from './Cell';
-import { bulletSymbolForIndent, fromDisplayText, toDisplayText } from '../utils/bulletText';
+import { displayPrefix, fromDisplayText, toDisplayText } from '../utils/bulletText';
 import { useCommitOnce } from '../hooks/useCommitOnce';
 
 // Einfache, einlagige Umsetzung: die Textarea zeigt IMMER exakt den Text,
-// den der Nutzer sieht - Einzug als echte Leerzeichen, Bullet-Symbol als
-// normales Zeichen direkt im Text (siehe toDisplayText/fromDisplayText in
-// bulletText.ts). Bewusst KEIN Schutz des Praefixes vor Backspace/Loeschen:
+// den der Nutzer sieht - Einzug als Tabulatoren (einer je Stufe), Bullet-Symbol
+// als normales Zeichen direkt im Text, gefolgt von einem weiteren Tabulator
+// (siehe displayPrefix in bulletText.ts; dieser zweite Tabulator ist fuer die
+// Ausrichtung tragend, weil die drei Symbole unterschiedlich breit sind).
+// Jedes Praefix in dieser Datei kommt aus displayPrefix() - niemals von Hand
+// zusammenbauen, sonst laufen Anzeige und Arithmetik auseinander.
+// Bewusst KEIN Schutz des Praefixes vor Backspace/Loeschen:
 // ein fruehrer Versuch mit Sonderbehandlung fuer Cursor-Bewegung am
 // Praefix hat die Komplexitaet (und damit die Bug-Flaeche) wieder
 // hochgetrieben - genau das Gegenteil des Ziels "robust und einfach". Der
@@ -20,9 +24,9 @@ function lineIndexAt(text: string, pos: number): number {
 
 function indentOfDisplayLine(text: string, lineIndex: number): number {
   const line = text.split('\n')[lineIndex] ?? '';
-  let spaces = 0;
-  while (spaces < line.length && line[spaces] === ' ') spaces += 1;
-  return Math.round(spaces / 3);
+  let indent = 0;
+  while (indent < line.length && line[indent] === '\t') indent += 1;
+  return indent;
 }
 
 export const BulletTextCell = forwardRef<CellHandle, CellProps>(function BulletTextCell(
@@ -208,8 +212,7 @@ export const BulletTextCell = forwardRef<CellHandle, CellProps>(function BulletT
           const lineIndex = lineIndexAt(text, cursor);
           const indent = indentOfDisplayLine(text, lineIndex);
           const line = text.split('\n')[lineIndex] ?? '';
-          const symbol = bulletSymbolForIndent(indent);
-          const prefix = ' '.repeat(indent * 3) + symbol + ' ';
+          const prefix = displayPrefix(indent);
           const lineText = line.startsWith(prefix) ? line.slice(prefix.length) : line.trimStart();
           if (lineText === '') {
             // Diese leere Zeile wurde nur angelegt, um die Zelle zu
@@ -254,11 +257,9 @@ export const BulletTextCell = forwardRef<CellHandle, CellProps>(function BulletT
             // bevor committet wird.
             const lines = text.split('\n');
             const line = lines[lineIndex];
-            const symbol = bulletSymbolForIndent(indent);
-            const prefix = ' '.repeat(indent * 3) + symbol + ' ';
+            const prefix = displayPrefix(indent);
             const lineText = line.startsWith(prefix) ? line.slice(prefix.length) : line.trimStart();
-            const restoredSymbol = bulletSymbolForIndent(start.indent);
-            lines[lineIndex] = ' '.repeat(start.indent * 3) + restoredSymbol + ' ' + lineText;
+            lines[lineIndex] = displayPrefix(start.indent) + lineText;
             const raw = fromDisplayText(lines.join('\n'));
             onCommit(raw === '' ? null : raw);
             onMoveTab(delta > 0 ? 1 : -1);
@@ -269,8 +270,7 @@ export const BulletTextCell = forwardRef<CellHandle, CellProps>(function BulletT
           const line = lines[lineIndex];
           const oldLineStart = lines.slice(0, lineIndex).reduce((sum, l) => sum + l.length + 1, 0);
           const cursorInLine = cursor - oldLineStart;
-          const oldSymbol = bulletSymbolForIndent(indent);
-          const oldPrefix = ' '.repeat(indent * 3) + oldSymbol + ' ';
+          const oldPrefix = displayPrefix(indent);
           const hasOldPrefix = line.startsWith(oldPrefix);
           const lineText = hasOldPrefix ? line.slice(oldPrefix.length) : line.trimStart();
           // Cursor-Distanz zum bisherigen Textanfang (nach dem alten
@@ -280,8 +280,7 @@ export const BulletTextCell = forwardRef<CellHandle, CellProps>(function BulletT
           // gerade tippt.
           const offsetInText = Math.max(cursorInLine - (hasOldPrefix ? oldPrefix.length : line.length - lineText.length), 0);
           const newIndent = indent + delta;
-          const newSymbol = bulletSymbolForIndent(newIndent);
-          const newPrefix = ' '.repeat(newIndent * 3) + newSymbol + ' ';
+          const newPrefix = displayPrefix(newIndent);
           lines[lineIndex] = newPrefix + lineText;
           setDraft(lines.join('\n'));
           // start.indent bleibt unveraendert (nicht auf newIndent

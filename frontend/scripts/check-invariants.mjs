@@ -17,6 +17,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { splitBlocks } from '../src/utils/markdownBlocks.ts';
+import { displayPrefix, fromDisplayText, toDisplayText } from '../src/utils/bulletText.ts';
 import {
   applyHighlight,
   blockTokens,
@@ -281,11 +282,83 @@ function checkUnits() {
   );
 }
 
+/**
+ * Bullet-Zellen der Notizansicht: die Rundreise Speicher -> Anzeige -> Speicher.
+ *
+ * Dieselbe Art von Absicherung wie [6] weiter oben, nur fuer den anderen
+ * Schreibpfad: was hier schiefgeht, aendert still die Einrueckung einer Notiz.
+ * Die Anzeigeform (Tabulatoren + Bullet-Symbol) ist reine Darstellung, das
+ * Speicherformat kennt nur fuehrende \t und nie ein Symbol.
+ */
+function checkBulletText() {
+  console.log('\nBullet-Rundreise');
+
+  const faelle = [
+    ['leer', ''],
+    ['eine Zeile ohne Einzug', 'Kontakt aufnehmen'],
+    ['zwei Ebenen', 'Oberpunkt\n\tUnterpunkt'],
+    ['drei Ebenen', 'Ebene null\n\tEbene eins\n\t\tEbene zwei'],
+    ['Ebene vier laeuft in der Symbolliste um', '\t\t\tEbene drei\n\t\t\t\tEbene vier'],
+    ['Sprung um zwei Stufen', 'Oben\n\t\tDirekt zwei tiefer'],
+    ['leere Zeile mittendrin', 'Erster\n\nDritter'],
+    ['Text enthaelt selbst ein Bullet-Zeichen', 'Siehe Punkt • im Protokoll'],
+    ['Text beginnt mit einem Bindestrich', '\tminus 5 Prozent'],
+    ['Tabulator mitten im Text', 'Spalte A\tSpalte B'],
+  ];
+
+  for (const [name, raw] of faelle) {
+    check(
+      fromDisplayText(toDisplayText(raw)) === raw,
+      `[B] Rundreise nicht byte-gleich: ${name}`,
+      `${JSON.stringify(raw)} -> ${JSON.stringify(fromDisplayText(toDisplayText(raw)))}`,
+    );
+  }
+
+  // Die Einruecktiefe muss aus der Anzeige exakt zurueckgelesen werden - ohne
+  // die frueher noetige Rundung aus einer Leerzeichenanzahl.
+  for (let indent = 0; indent < 6; indent += 1) {
+    const raw = '\t'.repeat(indent) + 'Text';
+    const display = toDisplayText(raw);
+    check(
+      display.startsWith(displayPrefix(indent)),
+      `[B] Anzeigepraefix stimmt nicht fuer Tiefe ${indent}`,
+      JSON.stringify(display),
+    );
+    check(
+      !display.includes('  '),
+      `[B] Anzeige enthaelt Leerzeichen-Einzug bei Tiefe ${indent}`,
+      JSON.stringify(display),
+    );
+  }
+
+  // Toleranz: das Modell hinter dem Magic-Button bekommt den ANZEIGETEXT und
+  // kann den Tabulator nach dem Symbol als Leerzeichen zurueckliefern. Beide
+  // Trenner muessen dasselbe Speicherergebnis liefern, sonst bleibt ein
+  // Leerzeichen am Textanfang stehen.
+  check(
+    fromDisplayText('\t–\tUnterpunkt') === fromDisplayText('\t– Unterpunkt'),
+    '[B] Leerzeichen als Trenner nach dem Symbol nicht toleriert',
+    JSON.stringify(fromDisplayText('\t– Unterpunkt')),
+  );
+  check(
+    fromDisplayText('\t– Unterpunkt') === '\tUnterpunkt',
+    '[B] Leerzeichen-Trenner nicht sauber entfernt',
+    JSON.stringify(fromDisplayText('\t– Unterpunkt')),
+  );
+  // Fehlendes Symbol (vom Nutzer geloescht) darf die Zeile nicht zerlegen.
+  check(
+    fromDisplayText('\tOhne Symbol') === '\tOhne Symbol',
+    '[B] Zeile ohne Bullet-Symbol falsch gelesen',
+    JSON.stringify(fromDisplayText('\tOhne Symbol')),
+  );
+}
+
 const files = readdirSync(fixturesDir).filter((f) => f.endsWith('.md'));
 for (const f of files) {
   checkFixture(f, readFileSync(join(fixturesDir, f), 'utf8'));
 }
 checkUnits();
+checkBulletText();
 
 console.log(`\n${checks} Pruefungen, ${failures} Fehler`);
 process.exit(failures === 0 ? 0 : 1);

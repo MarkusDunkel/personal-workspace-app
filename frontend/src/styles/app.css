@@ -401,8 +401,8 @@ body {
    unsichtbare Textarea ueber eine separat gerenderte Bullet-Optik - das
    fuehrte zu Drift zwischen Cursor-Position und sichtbarem Text, sobald
    Zeilen umbrachen oder Einruecktiefe wechselte). Bullet-Symbol und Einzug
-   sind jetzt normale Zeichen im Text selbst (siehe toDisplayText in
-   bulletText.ts), daher reicht fuer beide Zustaende dieselbe einfache
+   sind jetzt normale Zeichen im Text selbst - Tabulatoren plus das Symbol
+   (siehe displayPrefix in bulletText.ts), daher reicht fuer beide Zustaende dieselbe einfache
    Text-Darstellung - kein haengender Einzug bei Zeilenumbruch (bewusster
    Kompromiss fuer Robustheit), beide Zustaende sehen dafuer immer exakt
    gleich aus. */
@@ -412,12 +412,26 @@ body {
     width: 100%;
     box-sizing: border-box;
     padding: 0.35rem 0.5rem;
-    /* MUSS dicktengleich bleiben, das ist keine Stilfrage: toDisplayText in
-       bulletText.ts baut die Einruecktiefe aus echten Leerzeichen (drei je
-       Stufe) und setzt das Bullet-Symbol als gewoehnliches Zeichen davor.
-       Mit proportionaler Schrift waere ein Leerzeichen schmaler als das
-       Symbol, und die Stufen stuenden nicht mehr untereinander. */
-    font-family: var(--font-mono);
+    /* Dieselbe Schrift wie der Rest der Oberflaeche - die Einrueckung haengt
+       nicht mehr an der Dicktengleichheit: displayPrefix in bulletText.ts
+       setzt einen Tabulator je Stufe und einen WEITEREN nach dem Bullet-Symbol.
+       Tabstopps liegen unabhaengig von der Glyphenbreite fest, daher stehen
+       sowohl die Stufen als auch der Text hinter den unterschiedlich breiten
+       Symbolen ('•' '–' '▪') sauber untereinander.
+
+       INVARIANTE: font-family, font-size und tab-size muessen fuer Anzeige-<div>
+       und <textarea> identisch bleiben (daher derselbe Regelblock) - sonst
+       springt der Text beim Wechsel Anzeige<->Bearbeitung.
+
+       tab-size ist eine rein optische Groesse, die Zeichenarithmetik in
+       BulletTextCell.tsx haengt nicht daran. Zu schmal gewaehlt kann eine
+       breite Symbolglyphe ihren Stopp ueberlaufen und den Text dieser einen
+       Zeile einen Stopp nach rechts schieben - dann erhoehen.
+
+       white-space: pre-wrap ist Voraussetzung dafuer, dass Tabulatoren
+       ueberhaupt dargestellt werden; ohne das kollabieren sie. */
+    font-family: var(--font-ui);
+    tab-size: 4;
     font-size: 1rem;
     line-height: 1.4;
     white-space: pre-wrap;
@@ -650,10 +664,14 @@ body {
     width: 100%;
     height: 100%;
     resize: none;
-    /* Bearbeitet dieselbe "Inhalt"-Spalte wie die Bullet-Zelle, hier im
-       Rohformat mit Tabulator-Einzug - bleibt aus demselben Grund
-       dicktengleich. */
-    font-family: var(--font-mono);
+    /* Bearbeitet dieselbe "Inhalt"-Spalte wie die Bullet-Zelle, hier aber im
+       ROHFORMAT: die sichtbaren Tabulatoren sind die gespeicherten, es gibt
+       kein Bullet-Symbol und keine Einrueck-Logik (siehe TextEditorModal.tsx,
+       dessen Tab-Handler die Zelle verlaesst statt einzurruecken). tab-size ist
+       hier daher rein kosmetisch - kein Code liest es - und wird nur zur
+       Konsistenz mit der Bullet-Zelle gleich gehalten. */
+    font-family: var(--font-ui);
+    tab-size: 4;
     font-size: 1rem;
     background: var(--bg);
     color: var(--fg);

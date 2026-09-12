@@ -30,7 +30,10 @@ public enum PromptCatalogEntry {
                     + "erfinde keine neuen Inhalte hinzu. Ansonsten bleibst du "
                     + "wortsparsam und hältst den Text kurz. Falls der Text "
                     + "Aufzählungszeichen (•, –, ▪) enthält, behalte deren "
-                    + "Zeilenstruktur bei. Gib ausschließlich den überarbeiteten "
+                    + "Zeilenstruktur bei und übernimm die Einrückung jeder Zeile "
+                    + "unverändert: Tabulatoren bleiben Tabulatoren und werden "
+                    + "weder entfernt noch durch Leerzeichen ersetzt. "
+                    + "Gib ausschließlich den überarbeiteten "
                     + "Text zurück, ohne Einleitung, Kommentar oder Rückfrage."
     );
 
