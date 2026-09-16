@@ -6,8 +6,13 @@ import {
   putArchiveTable,
   putTable,
 } from '../api/notesApi';
-import type { RowOrigin, TableData, TableRow } from '../api/noteTypes';
-import { originKey, originLabel, parseOriginKey } from '../utils/noteSort';
+import type { RowOrigin, TableData, TableRow, UnmappedName } from '../api/noteTypes';
+import {
+  describeUnmappedNames,
+  originKey,
+  originLabel,
+  parseOriginKey,
+} from '../utils/noteSort';
 import { useArchiveFiles } from './useArchiveFiles';
 import { useDebouncedCallback } from './useDebouncedCallback';
 
@@ -24,7 +29,8 @@ import { useDebouncedCallback } from './useDebouncedCallback';
  * Die teuer erarbeiteten Eigenschaften von useNoteTableData sind absichtlich
  * uebernommen und NICHT neu erfunden - der Updater-Vertrag von mutateRows,
  * die Debounce plus Fallback-Intervall und das bewusste dirty-Bleiben nach
- * einem abgelehnten Archiv-Speichern. Die alte Datei traegt den Hinweis, dass
+ * einem abgelehnten Archiv-Speichern (der Fall ist inzwischen selten: es
+ * bleibt nur noch das fehlende Register). Die alte Datei traegt den Hinweis, dass
  * eine Kopie stillschweigend auseinanderlaufen wuerde; dies ist deshalb ihr
  * Ersatz, nicht ihre Kopie.
  */
@@ -44,12 +50,24 @@ const INITIAL_ARCHIVE_BATCH = 2;
 /** Wie viele weitere Dateien ein Klick auf "weitere laden" nachlaedt. */
 const ARCHIVE_BATCH_SIZE = 5;
 
+/**
+ * Eine Meldung unter der Tabelle. kind trennt echte Fehler (Laden oder
+ * Speichern fehlgeschlagen) von blossen Hinweisen (ein Wert liess sich nicht
+ * als Person aufloesen, die Datei ist aber geschrieben) - die Oberflaeche
+ * faerbt sie unterschiedlich, weil "kaputt" und "zur Kenntnis" nicht gleich
+ * aussehen duerfen.
+ */
+export interface NoteProblem {
+  kind: 'error' | 'warning';
+  text: string;
+}
+
 export interface MergedNoteData {
   rows: TableRow[];
   /** Aggregierter Speicherstatus fuer die StatusBar. */
   saveStatus: string;
-  /** Meldungen einzelner Dateien, die Aufmerksamkeit brauchen (z.B. 409). */
-  problems: string[];
+  /** Meldungen einzelner Dateien, die Aufmerksamkeit brauchen. */
+  problems: NoteProblem[];
   /** Wie viele Archivdateien noch nicht geladen sind. */
   pendingFileCount: number;
   loadMore: () => void;
@@ -67,6 +85,8 @@ export interface MergedNoteData {
 export function useMergedNoteData(liveTableId: string, reloadToken: number = 0): MergedNoteData {
   const [rows, setRowsState] = useState<TableRow[]>([]);
   const [statusByKey, setStatusByKey] = useState<Map<string, string>>(new Map());
+  /** Hinweise je Datei - siehe setWarning. */
+  const [warningsByKey, setWarningsByKey] = useState<Map<string, string>>(new Map());
   const [dirtyCount, setDirtyCount] = useState(0);
 
   const archiveFiles = useArchiveFiles(reloadToken);
@@ -90,6 +110,35 @@ export function useMergedNoteData(liveTableId: string, reloadToken: number = 0):
 
   const setStatus = useCallback((key: string, status: string) => {
     setStatusByKey((prev) => new Map(prev).set(key, status));
+  }, []);
+
+  /**
+   * Hinweise je Datei, getrennt vom Speicherstatus.
+   *
+   * Bewusst eine ZWEITE Karte und nicht derselbe String: der Status ist
+   * vorgangsbezogen und fluechtig ("speichert…" -> "Gespeichert 14:23"),
+   * der Hinweis dateibezogen und dauerhaft. In einem Feld gefuehrt ginge er
+   * bei jedem "speichert…" verloren und muesste danach wieder angehaengt
+   * werden. Ausserdem leitet saveStatus seine Zustaende per Praefix aus dem
+   * Status-String ab - ein angehaengter Hinweis machte diese Pruefungen
+   * bruechig.
+   */
+  const setWarning = useCallback((origin: RowOrigin, unmapped: UnmappedName[]) => {
+    const key = originKey(origin);
+    setWarningsByKey((prev) => {
+      // Bei jedem Speichern gesetzt, damit ein behobener Hinweis auch wieder
+      // verschwindet. Unveraenderte Karte zurueckgeben, wenn es nichts zu
+      // aendern gibt - sonst rendert die Notizansicht bei jedem Autosave neu.
+      if (unmapped.length === 0) {
+        if (!prev.has(key)) return prev;
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      }
+      const text = describeUnmappedNames(origin, unmapped);
+      if (prev.get(key) === text) return prev;
+      return new Map(prev).set(key, text);
+    });
   }, []);
 
   /**
@@ -148,19 +197,27 @@ export function useMergedNoteData(liveTableId: string, reloadToken: number = 0):
         // Wiederkehr).
         const data: TableData = { tableId: liveTableId, rows: fileRows };
         try {
-          if (origin.kind === 'live') await putTable(origin.tableId, data);
-          else await putArchiveTable(origin.fileName, data);
+          if (origin.kind === 'live') {
+            await putTable(origin.tableId, data);
+          } else {
+            // Der Server meldet Werte in Personenspalten, die das Register
+            // nicht kennt. Das ist ein Hinweis, keine Ablehnung - die Datei
+            // IST geschrieben, der Key wird also regulaer sauber gemeldet.
+            setWarning(origin, (await putArchiveTable(origin.fileName, data)).unmappedNames);
+          }
           dirtyKeysRef.current.delete(key);
           setDirtyCount(dirtyKeysRef.current.size);
           setStatus(key, 'Gespeichert ' + new Date().toLocaleTimeString());
         } catch (err) {
           if (err instanceof ArchiveSaveRejectedError) {
             // Diese Datei bleibt absichtlich dirty: die Aenderung steht in
-            // der Oberflaeche, wurde aber nicht geschrieben. Sobald der Name
-            // im Register steht, greift der naechste Speicherversuch. Die
-            // Servermeldung nennt Zeile und Spalte und wird deshalb
-            // unveraendert weitergegeben.
-            setStatus(key, `${originLabel(origin)}: ${err.message}`);
+            // der Oberflaeche, wurde aber nicht geschrieben. Das passiert nur
+            // noch, wenn das Register gar nicht lesbar ist - liegt es wieder
+            // vor, greift der naechste Versuch (spaetestens das 30s-Intervall).
+            // "Fehler beim Speichern" als Praefix, damit die Meldung von
+            // saveStatus und problems erfasst wird; die Servermeldung nennt
+            // den Grund und wird unveraendert angehaengt.
+            setStatus(key, `Fehler beim Speichern (${originLabel(origin)}): ${err.message}`);
             return;
           }
           setStatus(
@@ -209,12 +266,11 @@ export function useMergedNoteData(liveTableId: string, reloadToken: number = 0):
    * (Auto-Edit-Effect in DataGrid, damit man sofort tippen kann), und beim
    * Verlassen ruft die Zelle onCommit mit ihrem unveraenderten Entwurf auf.
    * Ohne diese Pruefung galt allein das ANKLICKEN einer Zeile als Aenderung -
-   * mit drei sichtbaren Folgen: die Datei wurde als geaendert markiert,
-   * lastChanged bekam einen neuen Zeitstempel, und bei einer abgelegten
-   * Notiz lehnte der Server das anschliessende Speichern mit "Nicht
-   * pseudonymisierbar" ab, sobald irgendwo in DERSELBEN Datei ein Name
-   * steht, den das Register nicht kennt (rejectUnmappedPersonNames prueft
-   * die ganze Datei, nicht nur die geaenderte Zeile).
+   * mit zwei sichtbaren Folgen: die Datei wurde als geaendert markiert und
+   * lastChanged bekam einen neuen Zeitstempel. (Frueher kam eine dritte dazu:
+   * der Server lehnte das Speichern einer abgelegten Notiz ab, sobald
+   * irgendwo in DERSELBEN Datei ein Name stand, den das Register nicht kennt.
+   * Das ist entfallen, siehe NoteArchiveService.write.)
    *
    * Leerstring und null gelten als derselbe Zustand: eine leere Zelle
    * kommt aus den Dateien in beiden Formen (siehe NoteArchiveService -
@@ -266,9 +322,9 @@ export function useMergedNoteData(liveTableId: string, reloadToken: number = 0):
       markDirty(originKey(origin));
       mutateRows((current) => {
         // order bleibt PRO DATEI dicht und 0-basiert. Wichtig, weil
-        // NoteArchiveService.rejectUnmappedPersonNames order+1 als
-        // Zeilennummer in seiner Fehlermeldung nennt - eine ueber alle
-        // Dateien durchlaufende Nummerierung machte diese Meldung unbrauchbar.
+        // NoteArchiveService.findUnmappedPersonNames order+1 als Zeilennummer
+        // in seinen Hinweisen nennt - eine ueber alle Dateien durchlaufende
+        // Nummerierung machte diese Angabe unbrauchbar.
         newRow.order = current.filter((r) => isLiveRowId(r.id)).length;
         // Haengt hinten an, obwohl die Zeile oben ERSCHEINEN soll: die
         // Anzeigereihenfolge entsteht in useNoteViewFilters (created
@@ -319,6 +375,9 @@ export function useMergedNoteData(liveTableId: string, reloadToken: number = 0):
     setDirtyCount(0);
     setRowsState([]);
     setStatusByKey(new Map());
+    // Auch die Hinweise: nach einem Absenden sind die Dateien andere, ein
+    // stehengebliebener Hinweis zeigte auf einen Stand, den es nicht mehr gibt.
+    setWarningsByKey(new Map());
     setLoadLimit(INITIAL_ARCHIVE_BATCH);
   }, [reloadToken]);
 
@@ -403,30 +462,42 @@ export function useMergedNoteData(liveTableId: string, reloadToken: number = 0):
   );
 
   /**
-   * Ein Eintrag fuer die StatusBar statt einem pro Datei. Die Reihenfolge ist
-   * bewusst gewaehlt: die Ablehnungsmeldung steht weit oben, weil sie die
-   * einzige umsetzbare Meldung ist und Zeile plus Spalte nennt.
+   * Ein Eintrag fuer die StatusBar statt einem pro Datei.
+   *
+   * Hinweise stehen hier bewusst NICHT: sie blockieren nichts und gehoeren in
+   * die Liste unter der Tabelle. Die Statusbar soll die Frage beantworten
+   * "ist mein Stand gespeichert?" - frueher verdraengte die Dauer-Ablehnung
+   * genau diese Antwort. Die Anzahl offener Hinweise laeuft nur als Zusatz
+   * hinter dem Erfolg mit.
    */
   const saveStatus = useMemo(() => {
     const values = [...statusByKey.values()];
     if (values.some((v) => v.startsWith('speichert'))) return 'speichert…';
-    const blocked = values.filter((v) => v.includes('Nicht pseudonymisierbar'));
-    if (blocked.length > 0) return blocked[0];
     if (dirtyCount > 0) {
       return `Ungespeicherte Änderungen… (${dirtyCount} ${dirtyCount === 1 ? 'Datei' : 'Dateien'})`;
     }
     const failed = values.filter((v) => v.startsWith('Fehler') || v.startsWith('Konnte'));
     if (failed.length > 0) return failed[0];
     const saved = values.filter((v) => v.startsWith('Gespeichert')).sort();
-    return saved.length > 0 ? saved[saved.length - 1] : 'Bereit';
-  }, [statusByKey, dirtyCount]);
+    if (saved.length === 0) return 'Bereit';
+    const latest = saved[saved.length - 1];
+    return warningsByKey.size > 0
+      ? `${latest} · ${warningsByKey.size} ${warningsByKey.size === 1 ? 'Hinweis' : 'Hinweise'}`
+      : latest;
+  }, [statusByKey, warningsByKey, dirtyCount]);
 
-  const problems = useMemo(
-    () =>
-      [...statusByKey.values()].filter(
-        (v) => v.includes('Nicht pseudonymisierbar') || v.startsWith('Konnte'),
-      ),
-    [statusByKey],
+  /**
+   * Echte Fehler zuerst, Hinweise danach - ein nicht geladenes Archiv wiegt
+   * schwerer als ein Wert, der kein Personenname ist.
+   */
+  const problems = useMemo<NoteProblem[]>(
+    () => [
+      ...[...statusByKey.values()]
+        .filter((v) => v.startsWith('Konnte') || v.startsWith('Fehler'))
+        .map((text) => ({ kind: 'error' as const, text })),
+      ...[...warningsByKey.values()].map((text) => ({ kind: 'warning' as const, text })),
+    ],
+    [statusByKey, warningsByKey],
   );
 
   const pendingFileCount = Math.max(0, archiveFiles.length - loadLimit);

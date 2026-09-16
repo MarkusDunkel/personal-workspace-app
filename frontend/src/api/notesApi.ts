@@ -1,4 +1,9 @@
-import type { ArchiveFileInfo, TableData, TableDefinition } from './noteTypes';
+import type {
+  ArchiveFileInfo,
+  ArchiveSaveResult,
+  TableData,
+  TableDefinition,
+} from './noteTypes';
 
 export async function getTableDefinitions(): Promise<TableDefinition[]> {
   const res = await fetch('/api/notes');
@@ -33,16 +38,23 @@ export async function getArchiveTable(fileName: string): Promise<TableData> {
   return res.json();
 }
 
-export async function putArchiveTable(fileName: string, data: TableData): Promise<void> {
+export async function putArchiveTable(
+  fileName: string,
+  data: TableData,
+): Promise<ArchiveSaveResult> {
   const res = await fetch(`/api/notes/archive/${encodeURIComponent(fileName)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (res.ok) return;
-  // 409 = ein Name in einer Personenspalte fehlt im Register (siehe
-  // NotPseudonymizableException). Die Servermeldung nennt Zeile und Spalte
-  // und muss den Nutzer erreichen, statt als generischer Fehler zu enden.
+  // Die Antwort nennt Werte in Personenspalten, die das Register nicht kennt.
+  // Das ist ein Hinweis - gespeichert ist trotzdem.
+  if (res.ok) return res.json();
+  // 409 heisst jetzt NUR noch: person_register.csv ist unlesbar oder leer, es
+  // kann ueberhaupt nicht pseudonymisiert werden (siehe
+  // NotPseudonymizableException). Einzelne nicht aufloesbare Werte lehnen das
+  // Speichern nicht mehr ab. Die Servermeldung nennt den Grund und muss den
+  // Nutzer erreichen, statt als generischer Fehler zu enden.
   if (res.status === 409) {
     throw new ArchiveSaveRejectedError(await readProblemMessage(res));
   }

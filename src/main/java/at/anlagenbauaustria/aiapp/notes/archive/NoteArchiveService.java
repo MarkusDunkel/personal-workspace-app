@@ -3,6 +3,8 @@ package at.anlagenbauaustria.aiapp.notes.archive;
 import at.anlagenbauaustria.aiapp.fs.AtomicFileWriter;
 import at.anlagenbauaustria.aiapp.fs.FsGuard;
 import at.anlagenbauaustria.aiapp.notes.archive.model.ArchiveFileInfo;
+import at.anlagenbauaustria.aiapp.notes.archive.model.ArchiveSaveResult;
+import at.anlagenbauaustria.aiapp.notes.archive.model.UnmappedName;
 import at.anlagenbauaustria.aiapp.notes.model.NoteTableData;
 import at.anlagenbauaustria.aiapp.notes.model.NoteTableRow;
 import at.anlagenbauaustria.aiapp.pseudonymize.PseudonymMapper;
@@ -19,7 +21,6 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -55,8 +56,14 @@ public class NoteArchiveService {
      * Nur diese Zellen werden uebersetzt. Die uebrigen (typ, status, bis,
      * created, lastChanged, projekt, meeting) enthalten keine Personennamen
      * und bleiben unangetastet.
+     *
+     * List statt Set: die Reihenfolge landet ueber findUnmappedPersonNames in
+     * einer Anzeige, und Set.of iteriert pro JVM-Start in anderer Reihenfolge
+     * (randomisierter Hash-Salt). Solange der Fund nur eine Exception war,
+     * spielte das keine Rolle. Der einzige andere Zugriff ist contains() in
+     * mapCells, das auf einer Dreierliste genauso arbeitet.
      */
-    private static final Set<String> PERSON_CELLS = Set.of("von", "an", "quelle");
+    private static final List<String> PERSON_CELLS = List.of("von", "an", "quelle");
     private static final String TEXT_CELL = "inhalt";
 
     private final FsGuard fsGuard;
@@ -107,11 +114,37 @@ public class NoteArchiveService {
     }
 
     /**
-     * Schreibt zurueck - immer pseudonymisiert. Bricht ab, wenn eine
-     * Personenspalte einen Namen enthaelt, den das Register nicht kennt:
-     * lieber eine sichtbare Fehlermeldung als ein Klarname in 2_ai-ready.
+     * Schreibt zurueck - immer pseudonymisiert.
+     *
+     * Werte in Personenspalten, die das Register nicht aufloesen kann, werden
+     * GEMELDET und nicht abgelehnt. Frueher brach das Schreiben hier ab, mit
+     * der Begruendung "lieber eine Fehlermeldung als ein Klarname in
+     * 2_ai-ready". Diese Begruendung traegt nicht:
+     *
+     * 1. Ein nicht aufloesbarer Wert ist kein Klarname, den DIESER Vorgang
+     *    hineintraegt - er kam mit read() unveraendert heraus und geht
+     *    unveraendert zurueck. Gegen das eigentliche Leck (die von read()
+     *    erzeugten Klarnamen) schuetzt mapCells mit toPseudonym, nicht diese
+     *    Pruefung.
+     * 2. Die Werte stammen aus der Python-Pipeline, die sie beim Absenden
+     *    selbst durchgelassen hat - "Zeiterfassung", "GFOS Meeting", "HR"
+     *    sind Projekte und Abteilungen. Die Pipeline fuehrt dafuer sogar eine
+     *    eigene Liste (ai-vault/config/ignored_values.csv, angebunden ueber
+     *    AIVAULT_IGNORED_VALUES), die hier bewusst NICHT gelesen wird - diese
+     *    Pruefung war also ein zweites, mit der Pipeline unabgestimmtes
+     *    Personenkriterium.
+     * 3. Die Ablehnung galt der ganzen DATEI. Eine einzige solche Zelle machte
+     *    jede Aenderung an jeder anderen Zeile unmoeglich, auch das Loeschen -
+     *    die Oberflaeche schickt immer die komplette Datei.
+     *
+     * Der Abbruch bei fehlendem Register bleibt: dort kann ueberhaupt nicht
+     * uebersetzt werden, das waere ein echtes Leck.
+     *
+     * Kuenftiger Ausbau: liest man ignored_values.csv hier mit, schrumpft die
+     * Meldung auf die tatsaechlich unbekannten Werte - sonst steht sie
+     * dauerhaft und wird uebersehen.
      */
-    public void write(String fileName, NoteTableData data) {
+    public ArchiveSaveResult write(String fileName, NoteTableData data) {
         Path file = resolveExistingFile(fileName);
 
         PseudonymMapper.Mapping mapping = pseudonymMapper.load();
@@ -124,7 +157,10 @@ public class NoteArchiveService {
         }
 
         NoteTableData pseudonymized = mapCells(data, mapping::toPseudonym);
-        rejectUnmappedPersonNames(pseudonymized, mapping);
+        // Vor dem Schreiben ermittelt, obwohl es nicht mehr blockiert: der
+        // Fund bezieht sich auf den bereits pseudonymisierten Stand, und
+        // unmittelbar nach mapCells ist das ohne zweites Hinsehen erkennbar.
+        List<UnmappedName> unmapped = findUnmappedPersonNames(pseudonymized, mapping);
 
         try {
             String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(pseudonymized);
@@ -132,6 +168,7 @@ public class NoteArchiveService {
         } catch (IOException e) {
             throw new UncheckedIOException("Konnte Archiv-Notiz nicht schreiben: " + file, e);
         }
+        return new ArchiveSaveResult(unmapped);
     }
 
     /**
@@ -179,22 +216,27 @@ public class NoteArchiveService {
         return new NoteTableData(data.tableId(), rows);
     }
 
-    private void rejectUnmappedPersonNames(NoteTableData pseudonymized, PseudonymMapper.Mapping mapping) {
-        List<String> problems = new ArrayList<>();
+    /**
+     * Sammelt die Werte in Personenspalten, die nach der Rueckersetzung kein
+     * Pseudonym geworden sind - also die, die das Register nicht kennt.
+     *
+     * Reine Ermittlung ohne Seiteneffekt: was damit geschieht, entscheidet der
+     * Aufrufer (siehe write). Geprueft werden nur PERSON_CELLS, nicht der
+     * Freitext in "inhalt" - dort kann allein der Python-Scan entscheiden, was
+     * ein Name ist.
+     */
+    private static List<UnmappedName> findUnmappedPersonNames(
+            NoteTableData pseudonymized, PseudonymMapper.Mapping mapping) {
+        List<UnmappedName> found = new ArrayList<>();
         for (NoteTableRow row : pseudonymized.rows()) {
             for (String cellId : PERSON_CELLS) {
                 String value = row.cells().get(cellId);
                 for (String name : mapping.unmappedNames(value)) {
-                    problems.add("\"" + name + "\" (Zeile " + (row.order() + 1)
-                            + ", Spalte \"" + cellId + "\")");
+                    found.add(new UnmappedName(row.order() + 1, cellId, name));
                 }
             }
         }
-        if (!problems.isEmpty()) {
-            throw new NotPseudonymizableException(
-                    "Nicht pseudonymisierbar: " + String.join(", ", problems)
-                            + ". Bitte zuerst ueber das Absenden ins Register aufnehmen.");
-        }
+        return List.copyOf(found);
     }
 
     private int countRows(String fileName) {

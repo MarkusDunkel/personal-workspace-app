@@ -54,3 +54,22 @@ export interface ArchiveFileInfo {
   timestamp: string;
   rowCount: number;
 }
+
+// Mirrors at.anlagenbauaustria.aiapp.notes.archive.model.UnmappedName
+export interface UnmappedName {
+  /** 1-basierte Zeilennummer, wie in der Oberflaeche. */
+  row: number;
+  /** Spalten-Id (von/an/quelle). */
+  column: string;
+  value: string;
+}
+
+/**
+ * Mirrors at.anlagenbauaustria.aiapp.notes.archive.model.ArchiveSaveResult
+ *
+ * Kommt dieses Objekt zurueck, ist die Datei geschrieben. unmappedNames ist
+ * ein Hinweis, keine Ablehnung.
+ */
+export interface ArchiveSaveResult {
+  unmappedNames: UnmappedName[];
+}

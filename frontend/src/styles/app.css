@@ -1157,7 +1157,18 @@ body {
     margin: 0.3rem 0;
     padding-left: 1.2rem;
     font-size: 0.72rem;
+}
+
+/* Etwas ging schief - die Datei wurde nicht geladen oder nicht geschrieben. */
+.note-problem--error {
     color: var(--error);
+}
+
+/* Nur zur Kenntnis: gespeichert ist, aber ein Wert in einer Personenspalte
+   liess sich nicht aufloesen. Bewusst nicht rot - sonst liest sich ein
+   erfolgreicher Speichervorgang wie ein Fehlschlag. */
+.note-problem--warning {
+    color: var(--warn);
 }
 
 .note-load-more {

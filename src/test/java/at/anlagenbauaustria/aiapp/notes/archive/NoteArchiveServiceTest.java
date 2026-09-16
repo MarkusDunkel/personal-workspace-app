@@ -4,6 +4,8 @@ import at.anlagenbauaustria.aiapp.config.AivaultProperties;
 import at.anlagenbauaustria.aiapp.fs.AtomicFileWriter;
 import at.anlagenbauaustria.aiapp.fs.FsGuard;
 import at.anlagenbauaustria.aiapp.fs.PathTraversalException;
+import at.anlagenbauaustria.aiapp.notes.archive.model.ArchiveSaveResult;
+import at.anlagenbauaustria.aiapp.notes.archive.model.UnmappedName;
 import at.anlagenbauaustria.aiapp.notes.model.NoteTableData;
 import at.anlagenbauaustria.aiapp.notes.model.NoteTableRow;
 import at.anlagenbauaustria.aiapp.pipeline.AivaultEnv;
@@ -153,8 +155,11 @@ class NoteArchiveServiceTest {
     @Test
     void roundTripLeavesFileUnchangedWhenNothingEdited() throws IOException {
         Path file = archiveDir.resolve("notes-2026-08-05T12-20-07Z.json");
+        // "quelle" traegt bewusst einen Nicht-Personen-Wert, wie er real in
+        // 2_ai-ready steht: Anzeigen und unveraendert Zurueckspeichern darf
+        // auch dann nichts aendern - frueher scheiterte genau das.
         writeArchiveFile("notes-2026-08-05T12-20-07Z.json", noteJson(
-                "{\"typ\":\"Aufgabe\",\"von\":\"Person_007\","
+                "{\"typ\":\"Aufgabe\",\"von\":\"Person_007\",\"quelle\":\"Zeiterfassung\","
                         + "\"inhalt\":\"Person_083 fragt Person_004\"}"));
 
         // Erster Durchlauf normalisiert nur die Formatierung (Jackson
@@ -175,19 +180,98 @@ class NoteArchiveServiceTest {
                 .doesNotContain("Nölscher");
     }
 
+    /**
+     * Der reale Fall aus 2_ai-ready: "Zeiterfassung" in der Spalte quelle ist
+     * ein Projekt, keine Person - die Python-Pipeline laesst solche Werte
+     * bewusst durch. Frueher lehnte write() deswegen die GANZE Datei ab,
+     * wodurch sie dauerhaft unspeicherbar war (auch das Loeschen einer voellig
+     * anderen Zeile schlug fehl). Jetzt wird der Wert gemeldet und
+     * mitgeschrieben.
+     */
     @Test
-    void writeRejectsNameMissingFromRegister() throws IOException {
+    void writeKeepsUnknownNamesAndReportsThem() throws IOException {
         writeArchiveFile("notes-2026-08-05T12-20-07Z.json", noteJson("{}"));
 
         Map<String, String> cells = new LinkedHashMap<>();
-        cells.put("an", "Hans Gruber");
+        cells.put("typ", "Info");
+        cells.put("quelle", "Zeiterfassung");
+        cells.put("von", "Markus Dunkel");
+        cells.put("inhalt", "Rückfrage an Helena");
+        // order 24 statt 0: so prueft die erwartete 25 die Umrechnung
+        // order + 1 wirklich.
+        NoteTableData data = new NoteTableData("notes", List.of(new NoteTableRow("r1", cells, 24)));
+
+        ArchiveSaveResult result = service.write("notes-2026-08-05T12-20-07Z.json", data);
+
+        assertThat(result.unmappedNames())
+                .containsExactly(new UnmappedName(25, "quelle", "Zeiterfassung"));
+
+        String onDisk = Files.readString(
+                archiveDir.resolve("notes-2026-08-05T12-20-07Z.json"), StandardCharsets.UTF_8);
+        // Die Datei IST geschrieben, der unbekannte Wert steht unveraendert drin ...
+        assertThat(onDisk).contains("Zeiterfassung");
+        // ... und die uebrigen Personenzellen sind trotzdem pseudonymisiert.
+        assertThat(onDisk).contains("Person_007").contains("Person_004");
+        assertThat(onDisk).doesNotContain("Markus Dunkel").doesNotContain("Helena");
+    }
+
+    /**
+     * Gegenprobe: ohne Fund muss die Liste LEER sein. Die Oberflaeche loescht
+     * einen bestehenden Hinweis genau daran - meldete der Server immer etwas,
+     * bliebe er fuer immer stehen.
+     */
+    @Test
+    void writeReportsNothingWhenAllNamesAreKnown() throws IOException {
+        writeArchiveFile("notes-2026-08-05T12-20-07Z.json", noteJson("{}"));
+
+        Map<String, String> cells = new LinkedHashMap<>();
+        cells.put("von", "Markus Dunkel");
+        cells.put("an", "Helena Nölscher");
         NoteTableData data = new NoteTableData("notes", List.of(new NoteTableRow("r1", cells, 0)));
 
-        assertThatThrownBy(() -> service.write("notes-2026-08-05T12-20-07Z.json", data))
-                .isInstanceOf(NotPseudonymizableException.class)
-                .hasMessageContaining("Hans Gruber");
-        assertThat(Files.readString(archiveDir.resolve("notes-2026-08-05T12-20-07Z.json"),
-                StandardCharsets.UTF_8)).isEqualTo(noteJson("{}"));
+        assertThat(service.write("notes-2026-08-05T12-20-07Z.json", data).unmappedNames())
+                .isEmpty();
+    }
+
+    /**
+     * Mehrere Funde: je Zeile und Spalte ein Eintrag, Duplikate bleiben
+     * erhalten (sie unterscheiden sich durch die Zeile). Die Spaltenreihenfolge
+     * ist von/an/quelle - dafuer ist PERSON_CELLS eine List und kein Set.
+     */
+    @Test
+    void writeReportsEveryUnmappedNameWithRowAndColumn() throws IOException {
+        writeArchiveFile("notes-2026-08-05T12-20-07Z.json", noteJson("{}"));
+
+        Map<String, String> first = new LinkedHashMap<>();
+        first.put("von", "Hans Gruber");
+        first.put("quelle", "Perk");
+        Map<String, String> second = new LinkedHashMap<>();
+        second.put("quelle", "Perk");
+        NoteTableData data = new NoteTableData("notes", List.of(
+                new NoteTableRow("r1", first, 0),
+                new NoteTableRow("r2", second, 1)));
+
+        assertThat(service.write("notes-2026-08-05T12-20-07Z.json", data).unmappedNames())
+                .containsExactly(
+                        new UnmappedName(1, "von", "Hans Gruber"),
+                        new UnmappedName(1, "quelle", "Perk"),
+                        new UnmappedName(2, "quelle", "Perk"));
+    }
+
+    /**
+     * Freitext wird NICHT gemeldet: was in "inhalt" ein Name ist, kann allein
+     * der Python-Scan entscheiden. Ohne diesen Test wuerde eine spaetere
+     * "Verbesserung" der Pruefung die Hinweisliste unbrauchbar machen.
+     */
+    @Test
+    void writeDoesNotReportFreeTextContent() throws IOException {
+        writeArchiveFile("notes-2026-08-05T12-20-07Z.json", noteJson("{}"));
+
+        NoteTableData data = new NoteTableData("notes", List.of(new NoteTableRow(
+                "r1", Map.of("inhalt", "Gespraech mit Hans Gruber"), 0)));
+
+        assertThat(service.write("notes-2026-08-05T12-20-07Z.json", data).unmappedNames())
+                .isEmpty();
     }
 
     @Test

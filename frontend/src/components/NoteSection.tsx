@@ -120,7 +120,11 @@ export function NoteSection({
       {table.problems.length > 0 && (
         <ul className="note-problems">
           {table.problems.map((problem) => (
-            <li key={problem}>{problem}</li>
+            // kind im key, weil derselbe Text theoretisch als Fehler UND als
+            // Hinweis auftreten koennte - der Text allein waere nicht eindeutig.
+            <li key={`${problem.kind}:${problem.text}`} className={`note-problem--${problem.kind}`}>
+              {problem.text}
+            </li>
           ))}
         </ul>
       )}

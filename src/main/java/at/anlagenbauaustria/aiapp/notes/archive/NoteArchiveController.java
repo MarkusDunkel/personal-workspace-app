@@ -1,6 +1,7 @@
 package at.anlagenbauaustria.aiapp.notes.archive;
 
 import at.anlagenbauaustria.aiapp.notes.archive.model.ArchiveFileInfo;
+import at.anlagenbauaustria.aiapp.notes.archive.model.ArchiveSaveResult;
 import at.anlagenbauaustria.aiapp.notes.model.NoteTableData;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -47,17 +48,28 @@ public class NoteArchiveController {
         return archiveService.read(fileName);
     }
 
+    /**
+     * Gibt - anders als der Live-Pfad in NoteController - einen Antwortkoerper
+     * zurueck. Die Asymmetrie ist gewollt: nur dieser Pfad pseudonymisiert
+     * beim Schreiben und kann daher ueberhaupt etwas zu melden haben (Werte
+     * in Personenspalten, die das Register nicht kennt). Die Datei ist dabei
+     * immer geschrieben - siehe NoteArchiveService.write.
+     */
     @PutMapping("/{fileName}")
-    public void put(@PathVariable String fileName, @RequestBody NoteTableData body) {
-        archiveService.write(fileName, body);
+    public ArchiveSaveResult put(@PathVariable String fileName, @RequestBody NoteTableData body) {
+        return archiveService.write(fileName, body);
     }
 
     /**
      * Spring Boot blendet exception.getMessage() in der Standard-Fehlerantwort
      * aus (server.error.include-message=never per Default). Diese Meldung
-     * nennt aber Zeile und Spalte des Namens, der nicht pseudonymisiert werden
-     * konnte - ohne sie waere der Fehler fuer den Nutzer nicht handlungsfaehig.
-     * Daher hier explizit als Body, statt die Einstellung global zu lockern.
+     * nennt den Grund - das Register ist nicht lesbar oder leer, es kann also
+     * gar nicht pseudonymisiert werden -, ohne sie kaeme beim Nutzer nur ein
+     * nackter 409 an. Daher hier explizit als Body, statt die Einstellung
+     * global zu lockern.
+     *
+     * Einzelne nicht aufloesbare Werte loesen diesen Weg NICHT mehr aus; sie
+     * kommen als unmappedNames in der Erfolgsantwort zurueck.
      */
     @ExceptionHandler(NotPseudonymizableException.class)
     public ResponseEntity<Map<String, String>> handleNotPseudonymizable(NotPseudonymizableException e) {
