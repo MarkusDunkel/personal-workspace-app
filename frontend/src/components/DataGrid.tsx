@@ -42,6 +42,29 @@ function columnsForRow(definition: TableDefinition, row: TableRow | undefined): 
   return [definition.typColumn, ...variantColumns];
 }
 
+/**
+ * Zusatzklasse, die eine Zeile nach ihrem Aufgaben-Status einfaerbt.
+ *
+ * Leitet sich aus den SPALTEN der Zeile ab, nicht direkt aus
+ * row.cells.status: gefaerbt werden darf nur eine Zeile, deren Typ ueberhaupt
+ * eine Status-Spalte definiert (also "Aufgabe", siehe NoteRegistry). Das ist
+ * kein Umweg, sondern der Grund, warum Info-Zeilen zuverlaessig neutral
+ * bleiben - in den Daten tragen naemlich einige von ihnen noch einen
+ * verwaisten status-Wert aus der Zeit, als sie Aufgaben waren (cells ist eine
+ * freie Map, ein Typwechsel raeumte den alten Wert frueher nicht weg).
+ *
+ * Nur Werte aus options ergeben eine Klasse - ein unerwarteter Wert aus einer
+ * von Hand bearbeiteten Datei laesst die Zeile ungefaerbt, statt einen
+ * Klassennamen ohne passende Regel zu erzeugen.
+ */
+function statusClassFor(columns: ColumnDefinition[], row: TableRow): string {
+  const statusColumn = columns.find((c) => c.id === 'status' && c.type === 'CHOICE');
+  if (!statusColumn) return '';
+  const status = row.cells.status;
+  if (!status || !statusColumn.options.includes(status)) return '';
+  return ` data-grid-row--status-${status}`;
+}
+
 export function DataGrid({
   definition,
   rows,
@@ -349,7 +372,7 @@ export function DataGrid({
             <div
               key={row.id}
               role="row"
-              className={`data-grid-row${isGrace ? ' data-grid-row--grace' : ''}`}
+              className={`data-grid-row${isGrace ? ' data-grid-row--grace' : ''}${statusClassFor(columns, row)}`}
             >
               {/* Vorspalte: fruehere Position des Ziehgriffs. Zeigt jetzt, ob
                   die Zeile noch in 0_sources liegt, also noch nicht

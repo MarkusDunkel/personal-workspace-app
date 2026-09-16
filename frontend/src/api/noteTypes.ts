@@ -1,11 +1,13 @@
 // Mirrors at.anlagenbauaustria.aiapp.notes.model.ColumnType
-export type ColumnType = 'TEXT' | 'DATE' | 'PERSON' | 'TYP';
+export type ColumnType = 'TEXT' | 'DATE' | 'PERSON' | 'TYP' | 'CHOICE';
 
 // Mirrors at.anlagenbauaustria.aiapp.notes.model.ColumnDefinition
 export interface ColumnDefinition {
   id: string;
   label: string;
   type: ColumnType;
+  /** Erlaubte Werte bei type 'CHOICE', sonst leer. */
+  options: string[];
 }
 
 // Mirrors at.anlagenbauaustria.aiapp.notes.model.NoteTableDefinition

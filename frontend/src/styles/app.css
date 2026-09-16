@@ -28,6 +28,20 @@
     --code-keyword: #8250df;
     --code-string: #0a7b53;
     --code-number: #b3541e;
+
+    /* Zeilenfarben nach Aufgaben-Status (siehe .data-grid-row--status-*).
+       Flaechig ueber die ganze Zeile, daher kraeftig im Farbton aber nah an
+       --bg in der Helligkeit: der Zellentext erbt weiterhin --fg und soll
+       genauso gut lesbar bleiben wie auf einer ungefaerbten Zeile (alle
+       Kombinationen liegen ueber 12:1, WCAG AAA verlangt 7:1). Die Toene
+       sind aus den vorhandenen Signalfarben abgeleitet - blau wie --accent
+       fuer "neu" (wartend), warm wie --warn fuer "aktiv" (in Arbeit), gruen
+       fuer "erledigt" -, damit keine zweite, unabhaengige Farbwelt entsteht.
+       Die Statuszelle zeigt den Wert zusaetzlich im Klartext; die Farbe ist
+       also redundante Information und nicht der einzige Traeger. */
+    --status-neu-bg: #dbe4ef;
+    --status-aktiv-bg: #f2e3c4;
+    --status-erledigt-bg: #d6e4d4;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -43,6 +57,14 @@
         --code-keyword: #c39ae6;
         --code-string: #6cc39b;
         --code-number: #e0a06a;
+
+        /* Dieselben Farbwinkel, aber dunkler und staerker entsaettigt: die
+           hellen Pendants wirkten auf --bg #1c1c1a als grelle Balken. Die
+           Helligkeit liegt wieder nur knapp ueber --bg - gerade genug, um
+           die Faerbung zu erkennen, ohne dass --fg an Kontrast verliert. */
+        --status-neu-bg: #232d3a;
+        --status-aktiv-bg: #362e1e;
+        --status-erledigt-bg: #233020;
     }
 }
 
@@ -227,6 +249,13 @@ body {
     flex: 0 0 8rem;
 }
 
+/* Schmal - der laengste der drei Werte ist "erledigt". Ohne eine eigene
+   Breite naehme die Spalte per flex:1 1 0 die Haelfte des Platzes, der
+   "Inhalt" zusteht. */
+.data-grid-cell--status {
+    flex: 0 0 6.5rem;
+}
+
 /* Gleich breite Ziffern fuer Datums- und Zahlenangaben: die proportionale
    Oberflaechenschrift setzt Ziffern unterschiedlich breit, wodurch
    untereinander stehende Werte optisch springen. Ersetzt genau das, was
@@ -272,6 +301,28 @@ body {
    unter dem Cursor verschwindet. */
 .data-grid-row--grace {
     opacity: 0.55;
+}
+
+/* Aufgaben-Zeilen sind grundsaetzlich farbig, Info-Zeilen bleiben neutral -
+   damit trennt schon der Farbeindruck die beiden Zeilenarten, bevor man die
+   Typ-Spalte liest. Welche Zeile eine Farbe bekommt, entscheidet
+   DataGrid.statusClassFor.
+   Gesetzt auf die ZEILE, nicht auf die Zellen: die Zellen tragen eigene
+   Rahmen, eine Zellfaerbung liesse deren Linien als helles Gitternetz auf
+   der Flaeche stehen. Die Zellen selbst sind hintergrundlos und lassen die
+   Zeilenfarbe durch (siehe .cell-input / .bullet-text-cell-input).
+   Bewusst ohne eigene opacity: erledigte Aufgaben treten nicht zurueck,
+   sie sind nur andersfarbig. */
+.data-grid-row--status-neu {
+    background: var(--status-neu-bg);
+}
+
+.data-grid-row--status-aktiv {
+    background: var(--status-aktiv-bg);
+}
+
+.data-grid-row--status-erledigt {
+    background: var(--status-erledigt-bg);
 }
 
 .row-delete-button {
@@ -386,7 +437,15 @@ body {
     padding: 0.35rem 0.5rem;
     font-family: var(--font-ui);
     font-size: 1rem;
-    background: var(--bg);
+    /* transparent statt var(--bg): die Zeile kann nach Aufgaben-Status
+       flaechig gefaerbt sein (.data-grid-row--status-*), ein eigener
+       Hintergrund risse dort beim Bearbeiten ein unfarbiges Loch hinein.
+       Der Anzeigezustand (.cell-display, ein blosses <span>) hat aus
+       demselben Grund schon immer keinen - der Wechsel zwischen Anzeigen
+       und Bearbeiten wird dadurch sogar ruhiger. Die Auswahllisten, die
+       ueber der Zeile SCHWEBEN (.autocomplete-suggestions,
+       .date-picker-popup), behalten ihren deckenden Hintergrund. */
+    background: transparent;
     color: var(--fg);
     border: none;
     outline: none;
@@ -448,7 +507,10 @@ body {
     resize: none;
     overflow: hidden;
     margin: 0;
-    background: var(--bg);
+    /* transparent aus demselben Grund wie bei .cell-input - hier sogar
+       besonders wichtig: "Inhalt" ist die breiteste Zelle, ein Loch faellt
+       dort am staerksten auf. */
+    background: transparent;
     color: var(--fg);
 }
 

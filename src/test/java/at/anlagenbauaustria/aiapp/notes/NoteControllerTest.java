@@ -81,4 +81,20 @@ class NoteControllerTest {
 
         assertThat(afterSecondSave.rows().get(0).cells()).containsEntry("status", "aktiv");
     }
+
+    /**
+     * Gegenstueck zu putSetsStatusActiveOnNewAufgabeRow: wird eine Aufgabe
+     * spaeter auf "Info" umgestellt, muss die status-Zelle verschwinden.
+     * Frueher blieb sie stehen und tauchte - unsichtbar, aber vorhanden - im
+     * Status-Filter als Info-Treffer auf.
+     */
+    @Test
+    void putRemovesStatusWhenAufgabeBecomesInfo() {
+        NoteTableRow row = new NoteTableRow("a1", Map.of("typ", "Info", "status", "aktiv"), 0);
+        controller.put("notes", new NoteTableData("notes", List.of(row)));
+
+        NoteTableData stored = dataService.read("notes");
+        assertThat(stored.rows().get(0).cells()).doesNotContainKey("status");
+        assertThat(stored.rows().get(0).cells()).containsEntry("typ", "Info");
+    }
 }

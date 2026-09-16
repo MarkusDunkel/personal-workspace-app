@@ -189,4 +189,64 @@ class ArchiveNotesMigrationTest {
 
         assertThat(service.list()).isEmpty();
     }
+
+    /**
+     * Altlast 3: eine Zeile, die einmal Aufgabe war und auf "Info" umgestellt
+     * wurde, traegt den alten status-Wert weiter. Er muss weg, sonst liefert
+     * der Status-Filter Info-Zeilen als Treffer.
+     */
+    @Test
+    void removesOrphanStatusFromNonTaskRows() throws IOException {
+        writeArchiveFile("notes-2026-08-05T12-20-07Z.json", """
+                {
+                  "tableId": "notes",
+                  "rows": [
+                    {"id": "i1", "cells": {"typ": "Info", "created": "2026-08-05T10:00:00Z",
+                                           "status": "aktiv"}, "order": 0}
+                  ]
+                }
+                """);
+
+        migration.run(null);
+
+        assertThat(service.readRaw("notes-2026-08-05T12-20-07Z.json").rows().get(0).cells())
+                .doesNotContainKey("status")
+                .containsEntry("typ", "Info");
+    }
+
+    @Test
+    void keepsStatusOnTaskRows() throws IOException {
+        writeArchiveFile("notes-2026-08-05T12-20-07Z.json", """
+                {
+                  "tableId": "notes",
+                  "rows": [
+                    {"id": "a1", "cells": {"typ": "Aufgabe", "created": "2026-08-05T10:00:00Z",
+                                           "status": "erledigt"}, "order": 0}
+                  ]
+                }
+                """);
+
+        migration.run(null);
+
+        assertThat(service.readRaw("notes-2026-08-05T12-20-07Z.json").rows().get(0).cells())
+                .containsEntry("status", "erledigt");
+    }
+
+    /**
+     * Ergaenzt doesNotRewriteFileWithoutDefects um den neuen Defekt: eine
+     * Aufgabe MIT status ist fehlerfrei und darf die Datei nicht ausloesen.
+     * Ohne diese Probe wuerde eine zu weit gefasste Bedingung (z.B. "hat
+     * status" statt "hat status, ist aber keine Aufgabe") nicht auffallen -
+     * sie wuerde jede Archivdatei bei jedem Start neu schreiben.
+     */
+    @Test
+    void doesNotRewriteFileWhenOnlyTasksCarryStatus() throws IOException {
+        String original = """
+                {"tableId":"notes","rows":[{"id":"a1","cells":{"typ":"Aufgabe","created":"2026-07-01T08:00:00.000Z","status":"aktiv"},"order":0}]}""";
+        writeArchiveFile("notes-2026-08-21T06-57-51Z.json", original);
+
+        migration.run(null);
+
+        assertThat(readArchiveFile("notes-2026-08-21T06-57-51Z.json")).isEqualTo(original);
+    }
 }

@@ -46,32 +46,45 @@ public class NoteController {
     @PutMapping("/{tableId}")
     public void put(@PathVariable String tableId, @RequestBody NoteTableData body) {
         registry.get(tableId).orElseThrow(() -> new UnknownNoteTableException(tableId));
-        NoteTableData withStatus = markTasksActive(body);
+        NoteTableData withStatus = syncTaskStatus(body);
         dataService.write(tableId, withStatus);
         registerNewListValues(withStatus);
     }
 
     /**
-     * Setzt status="aktiv" bereits beim Speichern jeder typ="Aufgabe"-Zeile
+     * Haelt die status-Zelle mit dem Zeilentyp im Einklang.
+     *
+     * Aufgaben: status="aktiv" wird bereits beim Speichern gesetzt
      * (idempotent per putIfAbsent), statt erst nachtraeglich beim
      * Pseudonymisierungs-Absenden (siehe NoteSubmitService). Wuerde der
      * Status erst dort gesetzt, wuerde notes.json zwischen Scan und Apply
      * neu geschrieben und dabei die vom Scan gemessenen Zeichen-Positionen
      * verschieben - das ist Voraussetzung fuer die positionsgenaue
      * Pseudonymisierung ("nur diese Stelle"). status hat fuer den
-     * Pseudonymisierungsvorgang selbst keine Bedeutung, dient nur einem
-     * spaeteren Kanban-Board auf Basis von 2_ai-ready; andere Typen (z.B.
-     * "Info") bleiben unangetastet.
+     * Pseudonymisierungsvorgang selbst keine Bedeutung.
+     *
+     * Andere Typen: eine vorhandene status-Zelle wird ENTFERNT. Frueher
+     * wurde sie nur hinzugefuegt und nie wieder abgeraeumt - wer eine
+     * Aufgabe auf "Info" umstellte, hinterliess einen verwaisten Wert (cells
+     * ist eine freie Map ohne Schema). Sichtbar wurde das erst mit der
+     * Status-Spalte: solche Werte tauchten im Filtermenue auf und lieferten
+     * Info-Zeilen als Treffer. Den Altbestand in 2_ai-ready raeumt
+     * ArchiveNotesMigration weg, diese Zeile hier verhindert neue Faelle.
      */
-    private NoteTableData markTasksActive(NoteTableData data) {
+    private NoteTableData syncTaskStatus(NoteTableData data) {
         List<NoteTableRow> updated = new ArrayList<>();
         for (NoteTableRow row : data.rows()) {
-            if (!"Aufgabe".equals(row.cells().get("typ"))) {
+            boolean isTask = "Aufgabe".equals(row.cells().get("typ"));
+            if (!isTask && !row.cells().containsKey("status")) {
                 updated.add(row);
                 continue;
             }
             Map<String, String> cells = new LinkedHashMap<>(row.cells());
-            cells.putIfAbsent("status", STATUS_ACTIVE);
+            if (isTask) {
+                cells.putIfAbsent("status", STATUS_ACTIVE);
+            } else {
+                cells.remove("status");
+            }
             updated.add(new NoteTableRow(row.id(), cells, row.order()));
         }
         return new NoteTableData(data.tableId(), updated);

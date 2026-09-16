@@ -30,7 +30,19 @@ public class NoteRegistry {
                                     new ColumnDefinition("von", "Von", ColumnType.PERSON),
                                     new ColumnDefinition("inhalt", "Inhalt", ColumnType.TEXT),
                                     new ColumnDefinition("bis", "Bis", ColumnType.DATE),
-                                    new ColumnDefinition("an", "An", ColumnType.PERSON)
+                                    new ColumnDefinition("an", "An", ColumnType.PERSON),
+                                    // Nur bei "Aufgabe", nicht bei "Info" - daraus ergibt
+                                    // sich alles Weitere von selbst: die Spalte erscheint
+                                    // nur in Aufgaben-Zeilen (columnsForRow), gilt
+                                    // automatisch als typ-exklusiv (noteSort.isTypExclusive)
+                                    // und nur solche Zeilen werden eingefaerbt (DataGrid).
+                                    // Als LETZTE Spalte, weil "inhalt" den Restplatz nimmt:
+                                    // davor eingefuegt verschoebe sie die Inhalts-Spalte
+                                    // gegenueber Info-Zeilen und zerstoerte deren
+                                    // Ausrichtung. Zugleich die natuerliche letzte
+                                    // Tab-Station beim Erfassen.
+                                    new ColumnDefinition("status", "Status", ColumnType.CHOICE,
+                                            List.of("neu", "aktiv", "erledigt"))
                             ),
                             "Info", List.of(
                                     new ColumnDefinition("quelle", "Quelle", ColumnType.PERSON),

@@ -18,9 +18,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Einmalige Reparatur der abgelegten Notizen in 2_ai-ready/notes. Behebt zwei
- * Altlasten, die erst stoeren, seit alle Notizen in EINER sortierten Liste
- * erscheinen (created absteigend):
+ * Einmalige Reparatur der abgelegten Notizen in 2_ai-ready/notes. Behebt drei
+ * Altlasten. Die ersten beiden stoeren, seit alle Notizen in EINER sortierten
+ * Liste erscheinen (created absteigend):
  *
  * 1. Fehlendes "created": die aeltesten Archivdateien entstanden, bevor die
  *    Oberflaeche diesen Zeitstempel gesetzt hat. Ohne ihn haetten die Zeilen
@@ -35,12 +35,20 @@ import java.util.Map;
  *    (der Controller validiert die tableId - anders als NoteController -
  *    nicht).
  *
+ * 3. Verwaistes "status" auf Nicht-Aufgaben: NoteController setzte die Zelle
+ *    fuer jede Aufgabe, entfernte sie aber nie wieder - wer eine Aufgabe
+ *    nachtraeglich auf "Info" umstellte, hinterliess den alten Wert (cells
+ *    ist eine freie Map ohne Schema). Unsichtbar, solange es keine
+ *    Status-Spalte gab; mit ihr tauchen die Werte im Filtermenue auf und
+ *    liefern Info-Zeilen als Treffer. Neue Faelle verhindert
+ *    NoteController.syncTaskStatus, hier wird der Altbestand geraeumt.
+ *
  * Idempotent, aber NICHT ueber eine Markierungsdatei wie NotesMigration
  * (dort ist die Existenz von notes.json selbst die Markierung): diese
  * Migration ist ein Patch pro Zeile, ihre Markierung ist die Abwesenheit des
- * Defekts. Ist created gesetzt und tableId korrekt, wird die Datei nicht
- * angefasst - ein zweiter Lauf schreibt daher nichts und laesst jede Datei
- * byte-identisch.
+ * Defekts. Ist created gesetzt, tableId korrekt und kein verwaister Status
+ * vorhanden, wird die Datei nicht angefasst - ein zweiter Lauf schreibt daher
+ * nichts und laesst jede Datei byte-identisch.
  */
 @Component
 public class ArchiveNotesMigration implements ApplicationRunner {
@@ -82,7 +90,10 @@ public class ArchiveNotesMigration implements ApplicationRunner {
         List<NoteTableRow> rows = new ArrayList<>(raw.rows().size());
         for (NoteTableRow row : raw.rows()) {
             String created = row.cells().get("created");
-            if (created != null && !created.isBlank()) {
+            boolean needsCreated = created == null || created.isBlank();
+            boolean hasOrphanStatus = !"Aufgabe".equals(row.cells().get("typ"))
+                    && row.cells().containsKey("status");
+            if (!needsCreated && !hasOrphanStatus) {
                 rows.add(row);
                 continue;
             }
@@ -92,7 +103,12 @@ public class ArchiveNotesMigration implements ApplicationRunner {
             // Zeile umsortieren und ein riesiges Scheindiff in einer Datei
             // erzeugen, die der Nutzer sieht und versioniert.
             Map<String, String> cells = new LinkedHashMap<>(row.cells());
-            cells.put("created", fileCreated);
+            if (needsCreated) {
+                cells.put("created", fileCreated);
+            }
+            if (hasOrphanStatus) {
+                cells.remove("status");
+            }
             rows.add(new NoteTableRow(row.id(), cells, row.order()));
             changed = true;
         }
@@ -144,10 +160,11 @@ public class ArchiveNotesMigration implements ApplicationRunner {
     /**
      * Schreibt roh zurueck, also OHNE den Pseudonymisierungsschritt aus
      * NoteArchiveService.write(). Zulaessig, weil hier ausschliesslich
-     * created und tableId geaendert werden: die Personenzellen gehen
-     * unveraendert - und damit weiterhin pseudonymisiert - wieder in die
-     * Datei. Ueber write() zu gehen waere sogar schaedlich, da es bei
-     * fehlendem Register abbricht.
+     * created, tableId und status geaendert werden - allesamt keine
+     * Personenzellen (status ist in NoteArchiveService ausdruecklich als
+     * unberuehrt gefuehrt): die Personenzellen gehen unveraendert - und damit
+     * weiterhin pseudonymisiert - wieder in die Datei. Ueber write() zu gehen
+     * waere sogar schaedlich, da es bei fehlendem Register abbricht.
      *
      * Pretty-Printer und AtomicFileWriter wie in NoteArchiveService.write():
      * dieselbe Formatierung (sonst schreibt der erste normale Speichervorgang

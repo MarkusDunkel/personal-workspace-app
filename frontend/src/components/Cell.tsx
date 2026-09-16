@@ -2,7 +2,7 @@ import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } fr
 import type { ColumnDefinition } from '../api/noteTypes';
 import { AutocompleteCell } from './AutocompleteCell';
 import { DatePickerCell } from './DatePickerCell';
-import { TypCell } from './TypCell';
+import { ChoiceCell } from './ChoiceCell';
 import { TextEditorModal } from './TextEditorModal';
 import { BulletTextCell } from './BulletTextCell';
 import { useCommitOnce } from '../hooks/useCommitOnce';
@@ -181,8 +181,15 @@ export const Cell = forwardRef<CellHandle, CellDispatchProps>(function Cell({ co
       return <AutocompleteCell ref={ref} {...props} contacts={contacts} />;
     case 'DATE':
       return <DatePickerCell ref={ref} {...props} />;
+    // TYP und CHOICE nutzen dieselbe Komponente und unterscheiden sich nur
+    // in der Herkunft der Werteliste - und genau das ist auch der fachliche
+    // Unterschied: die Typ-Spalte zaehlt die Zeilenvarianten der TABELLE auf
+    // (definition.typValues, zugleich Schluesselmenge von columnsByTyp),
+    // jede andere Auswahlspalte bringt ihre Werte selbst mit.
     case 'TYP':
-      return <TypCell ref={ref} {...props} typValues={typValues} />;
+      return <ChoiceCell ref={ref} {...props} options={typValues} />;
+    case 'CHOICE':
+      return <ChoiceCell ref={ref} {...props} options={props.column.options} />;
     default:
       return <TextCell ref={ref} {...props} />;
   }

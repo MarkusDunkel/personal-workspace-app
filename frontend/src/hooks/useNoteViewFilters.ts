@@ -58,8 +58,16 @@ const EMPTY_STATE: NoteFilterState = {
   typScope: null,
 };
 
-/** Spalten, die ueberhaupt gefiltert werden koennen. */
-const FILTERABLE = ['typ', 'von', 'an', 'quelle', 'bis'] as const;
+/**
+ * Spalten, die ueberhaupt gefiltert werden koennen.
+ *
+ * Bewusst eine eigene Liste und nicht aus der Tabellendefinition abgeleitet:
+ * "inhalt" waere als Freitext sinnlos zu filtern. Eine neue Spalte bekommt
+ * ihre Sortierung zwar automatisch (siehe unionColumns), muss zum Filtern
+ * aber hier eingetragen werden - sonst zeigt die Leiste ein Menue, das leer
+ * bleibt und nichts bewirkt.
+ */
+const FILTERABLE = ['typ', 'von', 'an', 'quelle', 'bis', 'status'] as const;
 
 export interface UseNoteViewFilters {
   state: NoteFilterState;

@@ -2,11 +2,29 @@ import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } fr
 import type { CellHandle, CellProps } from './Cell';
 import { useCommitOnce } from '../hooks/useCommitOnce';
 
-interface TypCellProps extends CellProps {
-  typValues: string[];
+interface ChoiceCellProps extends CellProps {
+  /**
+   * Die erlaubten Werte. Kommen je nach Spalte aus unterschiedlichen
+   * Quellen - siehe den Dispatch in Cell.tsx: die Typ-Spalte bezieht sie
+   * von der Tabelle (definition.typValues, die Menge der Zeilenvarianten),
+   * jede andere Auswahlspalte von sich selbst (column.options).
+   */
+  options: string[];
 }
 
-export const TypCell = forwardRef<CellHandle, TypCellProps>(function TypCell(
+/**
+ * Zelle mit geschlossener Werteliste: zeigt den Wert an, beim Bearbeiten
+ * ein gefiltertes Auswahlmenue. Ein Wert ausserhalb der Liste ist kein
+ * speicherbarer Zustand (siehe commit unten).
+ *
+ * Hiess frueher TypCell und bediente nur die Typ-Spalte. Mit der
+ * Status-Spalte kam eine zweite Spalte derselben Form dazu - statt die
+ * Datei zu kopieren, wurde sie umbenannt: die ~140 Zeilen enthalten vier
+ * einzeln erarbeitete Korrekturen an der Tastaturbedienung (siehe die
+ * Kommentare unten), und eine Kopie liesse die naechste davon garantiert
+ * nur in einer der beiden Dateien landen.
+ */
+export const ChoiceCell = forwardRef<CellHandle, ChoiceCellProps>(function ChoiceCell(
   {
     column,
     value,
@@ -19,7 +37,7 @@ export const TypCell = forwardRef<CellHandle, TypCellProps>(function TypCell(
     onMoveDown,
     onMoveHorizontal,
     onMoveTab,
-    typValues,
+    options,
   },
   ref,
 ) {
@@ -55,8 +73,8 @@ export const TypCell = forwardRef<CellHandle, TypCellProps>(function TypCell(
 
   const matches =
     draft.trim() === ''
-      ? typValues
-      : typValues.filter((t) => t.toLowerCase().includes(draft.trim().toLowerCase()));
+      ? options
+      : options.filter((t) => t.toLowerCase().includes(draft.trim().toLowerCase()));
   // Genau ein Treffer, der exakt dem bereits committeten value entspricht,
   // ist keine echte Auswahlmoeglichkeit - ohne diese Ausnahme oeffnete sich
   // das Dropdown beim blossen Fokussieren einer bereits ausgefuellten Zelle
@@ -66,7 +84,7 @@ export const TypCell = forwardRef<CellHandle, TypCellProps>(function TypCell(
   const isOnlyCurrentValue = matches.length === 1 && matches[0].toLowerCase() === (value ?? '').toLowerCase();
   const listOpen = matches.length > 0 && !isOnlyCurrentValue;
 
-  const matchExact = (text: string) => typValues.find((t) => t.toLowerCase() === text.trim().toLowerCase());
+  const matchExact = (text: string) => options.find((t) => t.toLowerCase() === text.trim().toLowerCase());
 
   const commit = (text: string) => {
     return commitOnce(() => {
@@ -79,7 +97,7 @@ export const TypCell = forwardRef<CellHandle, TypCellProps>(function TypCell(
         onCommit(exact);
         return exact;
       }
-      // Kein Datenverlust: "Typ" erlaubt nur Werte aus typValues, ein nicht
+      // Kein Datenverlust: eine Auswahlspalte erlaubt nur Werte aus options, ein nicht
       // passender Freitext ist kein gueltiger, speicherbarer Zustand -
       // onCancelEdit() faellt auf den zuletzt committeten value zurueck,
       // statt einen ungueltigen Wert zu speichern oder ihn wortlos zu
