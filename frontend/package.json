@@ -11,6 +11,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@milkdown/core": "^7.22.1",
+    "@milkdown/ctx": "^7.22.1",
+    "@milkdown/plugin-history": "^7.22.1",
+    "@milkdown/plugin-listener": "^7.22.1",
+    "@milkdown/preset-commonmark": "^7.22.1",
+    "@milkdown/preset-gfm": "^7.22.1",
+    "@milkdown/prose": "^7.22.1",
+    "@milkdown/transformer": "^7.22.1",
     "highlight.js": "^11.12.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

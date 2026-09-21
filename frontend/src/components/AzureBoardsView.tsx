@@ -4,6 +4,9 @@ import { useAzureBoardsDigest } from '../hooks/useAzureBoardsDigest';
 import type { AzureBoardsCategory } from '../api/azureBoardsTypes';
 import { ReviewCandidateModal } from './submit/ReviewCandidateModal';
 import { SubmitProgressModal } from './submit/SubmitProgressModal';
+import { TicketPicker } from './tickets/TicketPicker';
+import { TicketEditor } from './tickets/TicketEditor';
+import { useAzureTickets } from '../hooks/useAzureTickets';
 
 const AVAILABLE_CATEGORIES: { id: AzureBoardsCategory; label: string }[] = [
   { id: 'main', label: 'Main' },
@@ -19,9 +22,14 @@ export function AzureBoardsView() {
   // einer Kategorie zugeordnet, analog zum Digest-Bereich.
   const [ingestCategory, setIngestCategory] = useState<AzureBoardsCategory>('main');
   const [digestCategory, setDigestCategory] = useState<AzureBoardsCategory>('main');
+  // Eigene Auswahl fuer die Bearbeitung: Ingest, Bearbeiten und Digest sind
+  // drei getrennte Vorgaenge, die nicht dasselbe Projekt betreffen muessen.
+  const [ticketCategory, setTicketCategory] = useState<AzureBoardsCategory>('main');
+  const [ticketId, setTicketId] = useState<string | null>(null);
 
   const ingest = useAzureBoardsIngest();
   const digest = useAzureBoardsDigest();
+  const tickets = useAzureTickets(ticketCategory);
 
   const ingestBusy = ingest.phase === 'scanning' || ingest.phase === 'reviewing' || ingest.phase === 'applying';
 
@@ -104,13 +112,48 @@ export function AzureBoardsView() {
           )}
         </section>
 
-        <div className="azb-connector" aria-hidden="true">
-          <span className="azb-connector-arrow">→</span>
-          <span className="azb-connector-label">
-            Dazwischen: <code>2_ai-ready</code> manuell bearbeiten
-          </span>
-          <span className="azb-connector-arrow">→</span>
-        </div>
+        {/* Frueher stand hier nur der Hinweis "Dazwischen: 2_ai-ready manuell
+            bearbeiten". Genau diese Luecke fuellt der Ticket-Editor - er sitzt
+            deshalb zwischen Ingest und Digest, an der Stelle des Arbeitsschritts,
+            den er ersetzt. */}
+        <section className="azb-box azb-tickets">
+          <h2 className="azb-heading">Beschreibungen bearbeiten</h2>
+          <p className="azb-box-description">
+            Ändert ausschließlich <code>System.Description</code> in{' '}
+            <code>2_ai-ready</code>. Das Format je Ticket bleibt erhalten; nach Azure
+            gelangt die Änderung erst über den Digest.
+          </p>
+          <div className="azb-digest-category">
+            <label>
+              Projekt:
+              <select
+                value={ticketCategory}
+                onChange={(e) => {
+                  setTicketCategory(e.target.value as AzureBoardsCategory);
+                  // Die Id gilt nur innerhalb eines Projekts - beim Wechsel
+                  // waere sie sonst eine Leiche aus dem vorigen.
+                  setTicketId(null);
+                }}
+              >
+                {AVAILABLE_CATEGORIES.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="azb-ticket-workspace">
+            <TicketPicker
+              tickets={tickets.tickets}
+              loaded={tickets.loaded}
+              error={tickets.error}
+              selectedId={ticketId}
+              onSelect={setTicketId}
+            />
+            <TicketEditor category={ticketCategory} ticketId={ticketId} />
+          </div>
+        </section>
 
         <section className="azb-box">
           <h2 className="azb-heading">Digest</h2>

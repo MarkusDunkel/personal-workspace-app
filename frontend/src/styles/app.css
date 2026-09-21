@@ -42,6 +42,12 @@
     --status-neu-bg: #dbe4ef;
     --status-aktiv-bg: #f2e3c4;
     --status-erledigt-bg: #d6e4d4;
+
+    /* Textmarker im Ticket-Editor. Azure faerbt <mark> gelb; dieser Ton ist
+       etwas gedeckter, damit er sich in die uebrige Palette einfuegt, bleibt
+       aber eindeutig als Markierung erkennbar. */
+    --mark-bg: #fdf0a8;
+    --mark-fg: #1c1c1a;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -65,6 +71,12 @@
         --status-neu-bg: #232d3a;
         --status-aktiv-bg: #362e1e;
         --status-erledigt-bg: #233020;
+
+        /* Im Dunkelmodus ein gedaempftes Gelb - der helle Ton wuerde als
+           leuchtender Balken wirken. Die Schrift bleibt dunkel, damit sie auf
+           der Markierung lesbar ist. */
+        --mark-bg: #d8c063;
+        --mark-fg: #1c1c1a;
     }
 }
 
@@ -1863,4 +1875,461 @@ body {
     background: color-mix(in srgb, var(--fg) 4%, transparent);
     padding: 0.5rem;
     border-radius: 0.3rem;
+}
+
+/* --- Ticket-Editor (Azure Boards) ----------------------------------------
+   Sitzt zwischen Ingest und Digest, an der Stelle des frueheren Hinweises
+   "Dazwischen: 2_ai-ready manuell bearbeiten". */
+
+/* Die Pipeline ist eine Flex-Zeile; der Editor braucht die volle Breite und
+   bricht deshalb in eine eigene um. */
+.azb-pipeline {
+    flex-wrap: wrap;
+}
+
+.azb-tickets {
+    flex: 1 0 100%;
+}
+
+/* Begrenzte Hoehe, damit der Editor IN SICH scrollt.
+
+   Ohne die Begrenzung wuchs der Arbeitsbereich mit der Beschreibung, und
+   gescrollt wurde ausschliesslich die ganze Seite (.azure-boards-view). Die
+   Werkzeugleiste wanderte dabei mit nach oben aus dem Bild - bei #569 mit 271
+   Zeilen war sie nach kurzem Scrollen nicht mehr erreichbar.
+
+   85vh statt einer festen Hoehe: der Arbeitsbereich fuellt den Bildschirm,
+   laesst aber die Ueberschrift der Box sichtbar. min-height haelt ihn bei
+   kurzen Beschreibungen trotzdem auf brauchbarer Groesse. */
+.azb-ticket-workspace {
+    display: flex;
+    gap: 1rem;
+    align-items: stretch;
+    min-height: 22rem;
+    max-height: 85vh;
+}
+
+/* Auswahlliste links, feste Breite - der Editor nimmt den Rest. */
+.ticket-picker {
+    flex: 0 0 20rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.ticket-search {
+    font-family: var(--font-ui);
+    font-size: 0.85rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 0.3rem;
+    background: var(--bg);
+    color: var(--fg);
+}
+
+.ticket-count {
+    margin: 0;
+    font-size: 0.7rem;
+    color: var(--muted);
+}
+
+.ticket-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 1px solid var(--border);
+    border-radius: 0.3rem;
+}
+
+.ticket-list-item {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    width: 100%;
+    padding: 0.3rem 0.5rem;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+    color: var(--fg);
+    font-family: var(--font-ui);
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ticket-list-item:hover {
+    background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+
+.ticket-list-item.selected {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.ticket-list-id {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.ticket-list-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ticket-list-type,
+.ticket-list-flag {
+    flex: 0 0 auto;
+    font-size: 0.7rem;
+    color: var(--muted);
+}
+
+/* min-height: 0 ist hier nicht kosmetisch: ohne die Angabe waechst ein
+   Flex-Element mit langem Inhalt ueber seinen Container hinaus, statt zu
+   scrollen. Das Scrollen wanderte dann nach aussen - und die klebende
+   Werkzeugleiste im Editor haette nichts mehr, woran sie kleben koennte. */
+.ticket-editor {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.ticket-editor-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+}
+
+.ticket-editor-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.ticket-badge {
+    font-size: 0.68rem;
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    color: var(--muted);
+}
+
+.ticket-save-status {
+    margin-left: auto;
+    font-size: 0.72rem;
+    color: var(--muted);
+}
+
+.ticket-hint {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+.ticket-status {
+    margin: 0;
+    font-size: 0.75rem;
+}
+
+.ticket-status-warn {
+    color: var(--warn);
+}
+
+.ticket-status-error {
+    color: var(--error);
+}
+
+.ticket-reload-button {
+    font-family: var(--font-ui);
+    font-size: 0.72rem;
+    padding: 0.1rem 0.5rem;
+    border: 1px solid var(--accent);
+    border-radius: 0.3rem;
+    background: transparent;
+    color: var(--accent);
+    cursor: pointer;
+}
+
+/* Milkdown bringt bewusst kein eigenes CSS mit (headless) - die Flaeche wird
+   hier gestaltet, damit sie sich in die Anwendung einfuegt statt ein fremdes
+   Thema mitzubringen. */
+/* Gescrollt wird der UMSCHLAG, nicht diese Flaeche - siehe
+   .ticket-milkdown-wrap. Nur so kann die Werkzeugleiste beim Scrollen stehen
+   bleiben: position:sticky wirkt immer relativ zum scrollenden Vorfahren, und
+   solange dieses Element selbst scrollte, lag die Leiste ausserhalb davon und
+   rutschte mit nach oben weg. */
+.ticket-milkdown {
+    background: var(--bg);
+}
+
+.ticket-milkdown-surface {
+    padding: 0.6rem 0.8rem;
+    outline: none;
+    font-family: var(--font-ui);
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.ticket-milkdown-surface h1,
+.ticket-milkdown-surface h2,
+.ticket-milkdown-surface h3 {
+    margin: 0.8rem 0 0.4rem;
+    line-height: 1.25;
+}
+
+.ticket-milkdown-surface h1 { font-size: 1.15rem; }
+.ticket-milkdown-surface h2 { font-size: 1.05rem; }
+.ticket-milkdown-surface h3 { font-size: 0.95rem; }
+
+.ticket-milkdown-surface p,
+.ticket-milkdown-surface ul,
+.ticket-milkdown-surface ol {
+    margin: 0.4rem 0;
+}
+
+.ticket-milkdown-surface code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    background: color-mix(in srgb, var(--fg) 6%, transparent);
+    padding: 0.05rem 0.25rem;
+    border-radius: 0.2rem;
+}
+
+.ticket-milkdown-surface pre {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    background: color-mix(in srgb, var(--fg) 5%, transparent);
+    padding: 0.5rem;
+    border-radius: 0.3rem;
+    overflow-x: auto;
+}
+
+.ticket-milkdown-surface blockquote {
+    margin: 0.4rem 0;
+    padding-left: 0.7rem;
+    border-left: 3px solid var(--border);
+    color: var(--muted);
+}
+
+.ticket-milkdown-surface table {
+    border-collapse: collapse;
+    margin: 0.5rem 0;
+}
+
+.ticket-milkdown-surface th,
+.ticket-milkdown-surface td {
+    border: 1px solid var(--border);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+.ticket-milkdown-surface hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 0.8rem 0;
+}
+
+/* HTML-Dialekt: Quelltext links, Vorschau rechts. */
+.ticket-html-editor {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    gap: 0.6rem;
+}
+
+.ticket-html-source {
+    flex: 1;
+    min-width: 0;
+    resize: none;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.45;
+    padding: 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 0.3rem;
+    background: var(--bg);
+    color: var(--fg);
+}
+
+.ticket-html-preview-wrap {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.ticket-html-preview-label {
+    font-size: 0.68rem;
+    color: var(--muted);
+}
+
+.ticket-html-preview {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 0.3rem;
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.ticket-html-preview table {
+    border-collapse: collapse;
+}
+
+.ticket-html-preview td,
+.ticket-html-preview th {
+    border: 1px solid var(--border);
+    padding: 0.2rem 0.4rem;
+}
+
+/* --- Markierung (Textmarker) im Ticket-Editor -----------------------------
+   Azure fuehrt Hervorhebungen als <mark> (siehe DESCRIPTION-FORMAT.md). */
+
+/* Der Umschlag scrollt, nicht die Editorflaeche darin. Rahmen und Rundung
+   sitzen deshalb hier - sonst umschloessen sie nur den sichtbaren Ausschnitt.
+   Beschreibungen sind teils sehr lang; die Werkzeugleiste darf dabei nicht
+   ausser Sicht geraten. */
+.ticket-milkdown-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 0.3rem;
+    background: var(--bg);
+}
+
+/* Kleines Farbfeld statt eines Symbols - zeigt unmittelbar, welche Farbe die
+   Markierung bekommt. */
+.ticket-mark-swatch {
+    width: 0.8rem;
+    height: 0.8rem;
+    border-radius: 0.15rem;
+    background: var(--mark-bg);
+    border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
+}
+
+/* Die Markierung selbst. Eigene Variable statt eines festen Gelbtons, damit
+   sie im Dunkelmodus nicht blendet und der Text lesbar bleibt - der Editor
+   erbt seine Schriftfarbe von --fg. */
+.ticket-milkdown-surface mark,
+.ticket-html-preview mark {
+    background: var(--mark-bg);
+    color: var(--mark-fg);
+    padding: 0 0.1rem;
+    border-radius: 0.15rem;
+}
+
+/* --- Werkzeugleiste des Ticket-Editors ------------------------------------ */
+
+/* Bleibt beim Scrollen am oberen Rand stehen. Der undurchsichtige Hintergrund
+   ist dafuer Bedingung - ohne ihn schoebe sich der Text sichtbar unter die
+   Schaltflaechen. */
+.ticket-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.4rem 0.8rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+}
+
+/* Gruppen trennen die Bereiche (Schrift / Absatz / Listen / Tabelle) optisch,
+   ohne dass es dafuer Ueberschriften braucht. */
+.ticket-tool-group {
+    display: flex;
+    gap: 0.15rem;
+    padding-right: 0.5rem;
+    border-right: 1px solid var(--border);
+}
+
+.ticket-tool-group:last-child {
+    border-right: none;
+    padding-right: 0;
+}
+
+.ticket-tool-button {
+    min-width: 1.8rem;
+    height: 1.6rem;
+    padding: 0 0.35rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    font-family: var(--font-ui);
+    font-size: 0.75rem;
+    line-height: 1;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: var(--fg);
+    cursor: pointer;
+}
+
+.ticket-tool-button:hover:not(:disabled) {
+    border-color: var(--border);
+    background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+
+/* Ausserhalb einer Tabelle sind die Tabellen-Schaltflaechen wirkungslos -
+   sichtbar lassen (damit die Leiste nicht springt), aber erkennbar inaktiv. */
+.ticket-tool-button:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.ticket-tool-button code {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+}
+
+/* --- Aufgabenlisten im Editor --------------------------------------------- */
+
+/* Milkdown bildet Aufgaben als list_item mit data-checked ab (siehe
+   extendListItemSchemaForTask). Der Marker wird hier gesetzt, weil Milkdown
+   headless ist und kein eigenes CSS mitbringt. */
+.ticket-milkdown-surface li[data-checked] {
+    list-style: none;
+    position: relative;
+}
+
+.ticket-milkdown-surface li[data-checked]::before {
+    content: "☐";
+    position: absolute;
+    left: -1.2rem;
+    color: var(--muted);
+}
+
+.ticket-milkdown-surface li[data-checked="true"]::before {
+    content: "☑";
+    color: var(--accent);
+}
+
+.ticket-milkdown-surface li[data-checked="true"] {
+    color: var(--muted);
+}
+
+/* --- Tabellen im Editor ---------------------------------------------------- */
+
+/* Die aktive Zelle hervorheben, damit erkennbar ist, worauf sich
+   "Zeile/Spalte einfuegen" bezieht. prosemirror-tables setzt diese Klasse. */
+.ticket-milkdown-surface .selectedCell {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.ticket-milkdown-surface th {
+    background: color-mix(in srgb, var(--fg) 5%, transparent);
+    font-weight: 600;
 }
