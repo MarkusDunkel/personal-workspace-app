@@ -1,6 +1,8 @@
 import type {
+  BaselineRef,
   DescriptionDialect,
   EditableField,
+  TicketBaseline,
   TicketDocument,
   TicketSaveResult,
   TicketSummary,
@@ -18,6 +20,37 @@ export async function getTicket(category: string, id: string): Promise<TicketDoc
   const res = await fetch(`${BASE}/item/${encodeURIComponent(category)}/${encodeURIComponent(id)}`);
   if (!res.ok) throw new Error(`GET ${BASE}/item/${category}/${id} failed: ${res.status}`);
   return res.json();
+}
+
+/**
+ * Holt den Stand der Felder im letzten Commit.
+ *
+ * Wirft NIE. Ein fehlender Vergleichsstand ist ein normaler Zustand, und die
+ * Aenderungsmarkierung ist Beiwerk - schlaegt sie fehl, muss das Ticket
+ * trotzdem ganz normal bearbeitbar bleiben. Deshalb wird jeder Fehler hier zu
+ * "nicht verfuegbar" statt zu einer Ausnahme, die die Ladekette abbraeche.
+ */
+export async function getTicketBaseline(
+  category: string,
+  id: string,
+  ref: BaselineRef = 'HEAD',
+): Promise<TicketBaseline> {
+  const unavailable: TicketBaseline = {
+    id,
+    ref,
+    available: false,
+    reason: 'Vergleichsstand nicht abrufbar.',
+    fields: [],
+  };
+  try {
+    const res = await fetch(
+      `${BASE}/baseline/${encodeURIComponent(category)}/${encodeURIComponent(id)}?ref=${ref}`,
+    );
+    if (!res.ok) return unavailable;
+    return await res.json();
+  } catch {
+    return unavailable;
+  }
 }
 
 /**

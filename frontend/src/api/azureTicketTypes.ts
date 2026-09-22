@@ -62,3 +62,27 @@ export interface TicketSaveResult {
   changed: boolean;
   revision: string;
 }
+
+/** Womit verglichen wird - siehe BaselineRef.java. */
+export type BaselineRef = 'HEAD' | 'INDEX';
+
+export interface TicketBaselineField {
+  field: EditableField;
+  /** Der Feldwert im Vergleichsstand. Leer, wenn es das Ticket dort nicht gab. */
+  value: string;
+}
+
+/**
+ * Der Stand der Felder im letzten Commit - Grundlage der Aenderungsmarkierung.
+ *
+ * available=false ist ein normaler Zustand (Datei unversioniert, kein
+ * Repository, kein Commit), kein Fehler. Die Oberflaeche markiert dann nichts
+ * und nennt reason als Erklaerung.
+ */
+export interface TicketBaseline {
+  id: string;
+  ref: BaselineRef;
+  available: boolean;
+  reason: string | null;
+  fields: TicketBaselineField[];
+}

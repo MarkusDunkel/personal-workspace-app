@@ -48,6 +48,20 @@
        aber eindeutig als Markierung erkennbar. */
     --mark-bg: #fdf0a8;
     --mark-fg: #1c1c1a;
+
+    /* Aenderungsmarkierung gegen den letzten Commit.
+
+       Zum Wunsch "dunkles Gruen": im hellen Thema wuerde ein dunkelgruener
+       Hintergrund die Schrift verschlucken. Getragen wird die Faerbung hier
+       deshalb vom selben hellen Gruen wie --status-erledigt-bg, damit keine
+       zweite Farbwelt entsteht; das dunkle Gruen steht im Dunkelmodus.
+
+       Das Rot ist bewusst nur ein Strich und keine Flaeche - es markiert eine
+       Stelle, an der etwas fehlt, und dort gibt es keinen Text zu hinterlegen. */
+    --diff-add-bg: #cfe3c8;
+    --diff-add-fg: #1c1c1a;
+    --diff-add-bar: #5c8a4e;
+    --diff-del-fg: #c0392b;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -77,6 +91,15 @@
            der Markierung lesbar ist. */
         --mark-bg: #d8c063;
         --mark-fg: #1c1c1a;
+
+        /* Hier das dunkle Gruen: auf --bg #1c1c1a traegt es die helle
+           Oberflaechenschrift, waehrend das helle Pendant als leuchtender
+           Balken wirken wuerde. Derselbe Farbwinkel wie im hellen Thema,
+           nur dunkler und entsaettigt - wie bei den Statusfarben darueber. */
+        --diff-add-bg: #253a1f;
+        --diff-add-fg: #e8e6e1;
+        --diff-add-bar: #6d9e5c;
+        --diff-del-fg: #e07a68;
     }
 }
 
@@ -2022,6 +2045,14 @@ body {
     color: var(--muted);
 }
 
+/* Hinweis, dass es keinen Vergleichsstand gibt. Noch zurueckhaltender als das
+   Dialektschild daneben - er erklaert nur, warum nichts markiert ist, und
+   soll nicht wie eine Warnung wirken. */
+.ticket-badge-muted {
+    border-style: dashed;
+    opacity: 0.75;
+}
+
 /* Verweis auf das Original in Azure. Zurueckhaltend gestaltet: er steht neben
    dem Titel, soll ihn aber nicht ueberstrahlen. */
 .ticket-azure-link {
@@ -2396,6 +2427,71 @@ body {
     color: var(--mark-fg);
     padding: 0 0.1rem;
     border-radius: 0.15rem;
+}
+
+/* --- Aenderungsmarkierung gegen den letzten Commit ------------------------- */
+
+/* Hinzugefuegter Text. Kein padding: das waere zwar huebscher, wuerde den
+   Text aber gegenueber dem unmarkierten Zustand verschieben - und die
+   Markierung erscheint und verschwindet beim Tippen. */
+.ticket-milkdown-surface .ticket-diff-added {
+    background: var(--diff-add-bg);
+    color: var(--diff-add-fg);
+    border-radius: 0.15rem;
+}
+
+/* Der senkrechte Strich an einer Loeschstelle.
+
+   Nullbreit, der sichtbare Strich entsteht erst im Pseudoelement. Das ist der
+   Kern der Sache: der Marker sitzt ZWISCHEN zwei Zeichen und darf den
+   Textfluss nicht anfassen - Text muss mit und ohne ihn identisch umbrechen.
+   Ein Element mit echter Breite verschoebe bei jedem Tastendruck die Zeile. */
+.ticket-milkdown-surface .ticket-diff-removed-mark {
+    position: relative;
+    display: inline-block;
+    width: 0;
+    user-select: none;
+    vertical-align: baseline;
+}
+
+.ticket-milkdown-surface .ticket-diff-removed-mark::before {
+    content: '';
+    position: absolute;
+    top: -0.15em;
+    bottom: -0.15em;
+    left: -1px;
+    width: 2px;
+    background: var(--diff-del-fg);
+    border-radius: 1px;
+    pointer-events: none;
+}
+
+/* Unsichtbare Trefferflaeche fuer den Tooltip. Zwei Pixel sind mit der Maus
+   praktisch nicht zu treffen; dieses Feld ist breiter, bleibt aber
+   durchsichtig und ausserhalb des Textflusses. */
+.ticket-milkdown-surface .ticket-diff-removed-mark::after {
+    content: '';
+    position: absolute;
+    top: -0.15em;
+    bottom: -0.15em;
+    left: -5px;
+    width: 10px;
+}
+
+/* Balken am linken Rand eines geaenderten Blocks.
+
+   Ueber box-shadow statt border-left, weil ein Rahmen den Block einruecken
+   wuerde - der Balken soll im Aussenabstand liegen und das Schriftbild nicht
+   verschieben. Erste Laenge: Abstand nach links, dritte: negative Streuung,
+   die den Schatten auf einen schmalen Streifen zusammenzieht. */
+.ticket-milkdown-surface .ticket-diff-block {
+    box-shadow: -0.6rem 0 0 -0.45rem var(--diff-add-bar);
+}
+
+/* Rot gewinnt, wo beides in einem Block zusammentrifft: eine Loeschung ist
+   das seltenere und das wichtigere Signal. */
+.ticket-milkdown-surface .ticket-diff-block-del {
+    box-shadow: -0.6rem 0 0 -0.45rem var(--diff-del-fg);
 }
 
 /* --- Werkzeugleiste des Ticket-Editors ------------------------------------ */

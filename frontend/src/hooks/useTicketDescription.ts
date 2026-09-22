@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getTicket, putTicketField, TicketConflictError } from '../api/azureTicketsApi';
+import {
+  getTicket,
+  getTicketBaseline,
+  putTicketField,
+  TicketConflictError,
+} from '../api/azureTicketsApi';
 import type { EditableField, TicketDocument } from '../api/azureTicketTypes';
 
 /**
@@ -30,6 +35,18 @@ export interface UseTicketDescription {
   doc: TicketDocument | null;
   /** Der aktuelle Entwurf je Feld, unter dem Feldnamen. */
   values: Record<string, string>;
+  /**
+   * Der Feldwert im letzten Commit, je Feld - Grundlage der
+   * Aenderungsmarkierung. null = kein Vergleichsstand vorhanden.
+   */
+  baselines: Record<string, string | null>;
+  /** Warum es keinen Vergleichsstand gibt; null, solange es einen gibt. */
+  baselineReason: string | null;
+  /**
+   * Ob die Abfrage des Vergleichsstands durch ist - unabhaengig davon, ob es
+   * einen gab. Der Editor braucht das, um genau einmal neu aufzubauen.
+   */
+  baselineLoaded: boolean;
   loading: boolean;
   loadError: string | null;
   saveStatus: string;
@@ -47,6 +64,9 @@ export function useTicketDescription(
 ): UseTicketDescription {
   const [doc, setDoc] = useState<TicketDocument | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [baselines, setBaselines] = useState<Record<string, string | null>>({});
+  const [baselineReason, setBaselineReason] = useState<string | null>(null);
+  const [baselineLoaded, setBaselineLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState('Bereit');
@@ -73,6 +93,9 @@ export function useTicketDescription(
     if (!ticketId) {
       setDoc(null);
       setValues({});
+      setBaselines({});
+      setBaselineReason(null);
+      setBaselineLoaded(false);
       originalsRef.current = {};
       setDirty(false);
       setConflict(null);
@@ -83,6 +106,29 @@ export function useTicketDescription(
     setLoadError(null);
     setConflict(null);
     setDirty(false);
+    setBaselines({});
+    setBaselineReason(null);
+    setBaselineLoaded(false);
+
+    // Bewusst NICHT an getTicket gekettet: die Aenderungsmarkierung ist
+    // Beiwerk. Ist der Vergleichsstand langsam oder gar nicht zu haben, muss
+    // sich das Ticket trotzdem sofort oeffnen lassen. getTicketBaseline wirft
+    // deshalb auch nie, sondern meldet available=false.
+    getTicketBaseline(category, ticketId).then((baseline) => {
+      if (cancelled) return;
+      if (!baseline.available) {
+        setBaselines({});
+        setBaselineReason(baseline.reason ?? 'Kein Vergleichsstand.');
+        setBaselineLoaded(true);
+        return;
+      }
+      const loaded: Record<string, string | null> = {};
+      for (const f of baseline.fields) loaded[f.field] = f.value;
+      setBaselines(loaded);
+      setBaselineReason(null);
+      setBaselineLoaded(true);
+    });
+
     getTicket(category, ticketId)
       .then((loaded) => {
         if (cancelled) return;
@@ -202,6 +248,9 @@ export function useTicketDescription(
   return {
     doc,
     values,
+    baselines,
+    baselineReason,
+    baselineLoaded,
     loading,
     loadError,
     saveStatus,

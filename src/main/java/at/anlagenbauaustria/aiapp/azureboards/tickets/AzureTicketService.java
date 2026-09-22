@@ -266,14 +266,18 @@ public class AzureTicketService {
     // intern
     // ---------------------------------------------------------------------
 
-    private record Located(Path file, LinkedHashMap<String, String> row) {}
+    record Located(Path file, LinkedHashMap<String, String> row) {}
 
     /**
      * Sucht die Datei zu einer Id. Bewusst OHNE Zwischenspeicher: die Pipeline
      * schreibt das Verzeichnis zwischendurch komplett neu, ein Index waere
      * genau dann veraltet, wenn es darauf ankommt.
+     *
+     * Paketsichtbar, weil TicketBaselineService dieselbe Suche braucht: es
+     * muss die DATEI zum Ticket kennen, um deren Stand aus git zu holen. Eine
+     * zweite Suchroutine dort waere eine Kopie, die auseinanderlaufen koennte.
      */
-    private Located locate(Category category, String ticketId) {
+    Located locate(Category category, String ticketId) {
         for (Path file : projectFiles(category)) {
             for (LinkedHashMap<String, String> row : codec.readRows(read(file))) {
                 if (ticketId.equals(row.get(TicketJsonCodec.ID_FIELD))) {

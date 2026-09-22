@@ -1,6 +1,7 @@
 package at.anlagenbauaustria.aiapp.azureboards.tickets;
 
 import at.anlagenbauaustria.aiapp.azureboards.model.Category;
+import at.anlagenbauaustria.aiapp.azureboards.tickets.model.TicketBaseline;
 import at.anlagenbauaustria.aiapp.azureboards.tickets.model.TicketDocument;
 import at.anlagenbauaustria.aiapp.azureboards.tickets.model.TicketSaveRequest;
 import at.anlagenbauaustria.aiapp.azureboards.tickets.model.TicketSaveResult;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -38,9 +40,11 @@ import java.util.Map;
 public class AzureTicketController {
 
     private final AzureTicketService service;
+    private final TicketBaselineService baselines;
 
-    public AzureTicketController(AzureTicketService service) {
+    public AzureTicketController(AzureTicketService service, TicketBaselineService baselines) {
         this.service = service;
+        this.baselines = baselines;
     }
 
     @GetMapping("/list/{category}")
@@ -51,6 +55,23 @@ public class AzureTicketController {
     @GetMapping("/item/{category}/{id}")
     public TicketDocument get(@PathVariable String category, @PathVariable String id) {
         return service.read(Category.fromSegment(category), id);
+    }
+
+    /**
+     * Der Stand der Felder im letzten Commit - Grundlage fuer die
+     * Aenderungsmarkierung im Editor.
+     *
+     * Bewusst ein eigener Aufruf und nicht Teil von /item: faellt er aus oder
+     * dauert er, muss sich das Ticket trotzdem oeffnen lassen. Ein fehlender
+     * Vergleichsstand kommt deshalb auch mit 200 und available=false zurueck,
+     * nicht als Fehlerstatus.
+     */
+    @GetMapping("/baseline/{category}/{id}")
+    public TicketBaseline baseline(
+            @PathVariable String category,
+            @PathVariable String id,
+            @RequestParam(defaultValue = "HEAD") BaselineRef ref) {
+        return baselines.baseline(Category.fromSegment(category), id, ref);
     }
 
     @PutMapping("/item/{category}/{id}")

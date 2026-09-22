@@ -27,11 +27,21 @@ import {
   deleteRowCommand,
   deleteTableCommand,
 } from './tableCommands';
+import { baselineCtx, ticketDiffPlugin } from './ticketDiffPlugin';
 
 interface MilkdownDescriptionEditorProps {
   /** Startwert. Wird NUR beim Aufbau gelesen - siehe Kommentar zum Remount. */
   initialValue: string;
   onChange: (markdown: string) => void;
+  /**
+   * Der Feldwert im letzten Commit, als Grundlage der Aenderungsmarkierung.
+   * null = kein Vergleichsstand, dann wird nichts markiert.
+   *
+   * Wird wie initialValue nur beim Aufbau gelesen: der Vergleichsstand
+   * gehoert zum geladenen Ticket, und beim Ticketwechsel wird die Komponente
+   * ohnehin neu aufgebaut.
+   */
+  baseline: string | null;
 }
 
 /**
@@ -70,6 +80,7 @@ interface MilkdownDescriptionEditorProps {
 export function MilkdownDescriptionEditor({
   initialValue,
   onChange,
+  baseline,
 }: MilkdownDescriptionEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   /** Fuer die Werkzeugleiste: der Befehl braucht die laufende Editor-Instanz. */
@@ -97,6 +108,9 @@ export function MilkdownDescriptionEditor({
       .config((ctx) => {
         ctx.set(rootCtx, host);
         ctx.set(defaultValueCtx, initialValue);
+        // Vergleichsstand fuer die Aenderungsmarkierung. Wie initialValue
+        // nur hier gesetzt - beim Ticketwechsel wird neu aufgebaut.
+        ctx.set(baselineCtx.key, baseline);
         // Tabellen NICHT auf Spaltenbreite ausrichten.
         //
         // remark-gfm richtet Pipe-Tabellen beim Serialisieren standardmaessig
@@ -171,6 +185,11 @@ export function MilkdownDescriptionEditor({
       .use(deleteRowCommand)
       .use(deleteColCommand)
       .use(deleteTableCommand)
+      // Aenderungsmarkierung gegen den letzten Commit. baselineCtx muss VOR
+      // dem Plugin stehen: das Plugin liest den Wert beim Aufbau, und ein
+      // noch nicht angemeldeter Slice waere zu diesem Zeitpunkt unbekannt.
+      .use(baselineCtx)
+      .use(ticketDiffPlugin)
       .use(history)
       .use(listener)
       .create()

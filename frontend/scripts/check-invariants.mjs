@@ -25,6 +25,8 @@ import {
   removeHighlight,
   enclosingHighlight,
 } from '../src/utils/markdownOffsets.ts';
+import { Schema } from 'prosemirror-model';
+import { projectDoc, toDocPosition } from '../src/components/tickets/textProjection.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Ueber CHECK_DIR laesst sich stattdessen ein echtes Vault-Verzeichnis
@@ -353,12 +355,132 @@ function checkBulletText() {
   );
 }
 
+/**
+ * Die Offset-Abbildung der Aenderungsmarkierung im Ticket-Editor.
+ *
+ * Das ist die korrektheitskritische Stelle des Features: projectDoc flacht
+ * ein ProseMirror-Dokument zu reinem Text ab und merkt sich die Zuordnung,
+ * toDocPosition rechnet sie zurueck. Ein Fehler um eins setzt die gruenen
+ * Markierungen auf die falschen Woerter - und das ist SCHLIMMER als gar
+ * keine Markierung, weil es den Leser aktiv in die Irre fuehrt.
+ *
+ * Geprueft wird deshalb die Umkehreigenschaft selbst: fuer jedes Textstueck
+ * muss die Hin- und Rueckabbildung wieder exakt auf dessen Dokumentbereich
+ * fallen. Das ist unabhaengig davon, wie das Dokument aussieht, und faengt
+ * jeden Fehler um eins.
+ */
+function checkTextProjection() {
+  console.log('\nTextprojektion (Aenderungsmarkierung)');
+
+  const schema = new Schema({
+    nodes: {
+      doc: { content: 'block+' },
+      paragraph: { group: 'block', content: 'inline*', toDOM: () => ['p', 0] },
+      heading: { group: 'block', content: 'inline*', toDOM: () => ['h1', 0] },
+      text: { group: 'inline' },
+    },
+    marks: {
+      strong: { toDOM: () => ['strong', 0] },
+    },
+  });
+
+  const p = (...children) => schema.node('paragraph', null, children);
+  const h = (...children) => schema.node('heading', null, children);
+  const t = (s) => schema.text(s);
+  const strong = (s) => schema.text(s, [schema.marks.strong.create()]);
+
+  const documents = {
+    'ein Absatz': schema.node('doc', null, [p(t('Hallo Welt'))]),
+    'zwei Absaetze': schema.node('doc', null, [p(t('Erster')), p(t('Zweiter'))]),
+    'mit Formatierung': schema.node('doc', null, [p(t('vor '), strong('fett'), t(' nach'))]),
+    'Ueberschrift und Text': schema.node('doc', null, [h(t('Titel')), p(t('Inhalt hier'))]),
+    'leerer Absatz dazwischen': schema.node('doc', null, [p(t('A')), p(), p(t('B'))]),
+    'viele Teilstuecke': schema.node('doc', null, [
+      p(t('a'), strong('b'), t('c'), strong('d'), t('e')),
+      p(t('zweiter Absatz mit mehr Text')),
+    ]),
+  };
+
+  for (const [name, doc] of Object.entries(documents)) {
+    const projection = projectDoc(doc);
+
+    // 1. Die tragende Invariante: jedes Segment faellt durch Hin- und
+    //    Rueckabbildung exakt auf sich selbst.
+    for (const segment of projection.segments) {
+      check(
+        toDocPosition(projection, segment.flatStart) === segment.pmFrom,
+        `[P] ${name}: Segmentanfang falsch abgebildet`,
+        `flat ${segment.flatStart} -> ${toDocPosition(projection, segment.flatStart)}, erwartet ${segment.pmFrom}`,
+      );
+      const expectedEnd = segment.pmFrom + (segment.flatEnd - segment.flatStart);
+      check(
+        toDocPosition(projection, segment.flatEnd) === expectedEnd,
+        `[P] ${name}: Segmentende falsch abgebildet`,
+        `flat ${segment.flatEnd} -> ${toDocPosition(projection, segment.flatEnd)}, erwartet ${expectedEnd}`,
+      );
+    }
+
+    // 2. JEDE Position im Text muss auf eine gueltige Dokumentposition
+    //    fallen. Eine Position ausserhalb liesse ProseMirror beim Anlegen
+    //    der Dekoration werfen und der Editor bliebe leer.
+    for (let offset = 0; offset <= projection.text.length; offset += 1) {
+      const pos = toDocPosition(projection, offset);
+      check(
+        pos >= 0 && pos <= doc.content.size + 2,
+        `[P] ${name}: Position ${pos} liegt ausserhalb des Dokuments`,
+        `offset ${offset}, Dokumentgroesse ${doc.content.size}`,
+      );
+    }
+
+    // 3. Der projizierte Text muss dem textContent entsprechen - sonst
+    //    verglichen wir etwas anderes, als im Editor steht.
+    const expectedText = [];
+    doc.forEach((block) => expectedText.push(block.textContent));
+    check(
+      projection.text === expectedText.join('\n') + '\n',
+      `[P] ${name}: projizierter Text weicht ab`,
+      JSON.stringify(projection.text),
+    );
+
+    // 4. Monotonie: spaetere Textstellen duerfen nie auf fruehere
+    //    Dokumentpositionen fallen. Ohne das koennten Markierungsbereiche
+    //    invertiert entstehen (from > to).
+    let last = -1;
+    for (let offset = 0; offset <= projection.text.length; offset += 1) {
+      const pos = toDocPosition(projection, offset);
+      check(pos >= last, `[P] ${name}: Abbildung nicht monoton bei ${offset}`, `${pos} < ${last}`);
+      last = pos;
+    }
+
+    // 5. Ein Bereich ueber ein ganzes Segment muss im Dokument genau dessen
+    //    Text zurueckliefern. Das ist die Probe darauf, dass die Markierung
+    //    wirklich die gemeinten Zeichen trifft.
+    for (const segment of projection.segments) {
+      const from = toDocPosition(projection, segment.flatStart);
+      const to = toDocPosition(projection, segment.flatEnd);
+      const slice = doc.textBetween(from, to);
+      const expected = projection.text.slice(segment.flatStart, segment.flatEnd);
+      check(
+        slice === expected,
+        `[P] ${name}: Bereich trifft den falschen Text`,
+        `${JSON.stringify(slice)} statt ${JSON.stringify(expected)}`,
+      );
+    }
+  }
+
+  // 6. Das leere Dokument darf nicht werfen.
+  const empty = projectDoc(schema.node('doc', null, [p()]));
+  check(toDocPosition(empty, 0) === 0, '[P] leeres Dokument: Position 0 erwartet');
+  check(toDocPosition(empty, 5) === 0, '[P] leeres Dokument: Position hinter dem Ende');
+}
+
 const files = readdirSync(fixturesDir).filter((f) => f.endsWith('.md'));
 for (const f of files) {
   checkFixture(f, readFileSync(join(fixturesDir, f), 'utf8'));
 }
 checkUnits();
 checkBulletText();
+checkTextProjection();
 
 console.log(`\n${checks} Pruefungen, ${failures} Fehler`);
 process.exit(failures === 0 ? 0 : 1);

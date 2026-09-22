@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { allowsVisualEditor } from '../../api/azureTicketTypes';
 import type { DescriptionDialect, TicketField } from '../../api/azureTicketTypes';
 import { useTicketDescription } from '../../hooks/useTicketDescription';
@@ -47,6 +48,7 @@ export function TicketEditor({
 }: TicketEditorProps) {
   const state = useTicketDescription(category, ticketId);
   const { doc } = state;
+  const baselineStamp = useBaselineStamp(state.baselineLoaded, state.hasUnsavedChanges, ticketId);
 
   if (!ticketId) {
     return <p className="ticket-hint">Links ein Ticket auswählen.</p>;
@@ -128,9 +130,22 @@ export function TicketEditor({
             // key ueber Ticket UND Feld: Milkdown haelt seinen Zustand
             // ausserhalb von React, sonst bliebe die Undo-Historie des vorigen
             // Tickets - oder des anderen Feldes - erhalten.
-            editorKey={`${category}:${doc.id}:${field.field}`}
+            //
+            // Der Vergleichsstand gehoert mit hinein, weil er erst nach dem
+            // Ticket eintrifft und der Editor ihn nur beim Aufbau liest; ohne
+            // ihn im key bliebe die Markierung bis zum Ticketwechsel aus.
+            //
+            // ABER nur, solange nichts bearbeitet wurde: ein Neuaufbau
+            // verwirft die Undo-Historie. Wer in den Sekundenbruchteilen bis
+            // zur Antwort schon tippt, verloere sonst sein Strg+Z. Der Inhalt
+            // bliebe zwar erhalten (value ist der aktuelle Entwurf), die
+            // Historie aber nicht - und dann lieber keine Markierung bis zum
+            // naechsten Oeffnen.
+            editorKey={`${category}:${doc.id}:${field.field}:${baselineStamp}`}
             field={field}
             value={state.values[field.field] ?? ''}
+            baseline={state.baselines[field.field] ?? null}
+            baselineReason={state.baselineReason}
             onChange={(next) => state.setValue(field.field, next)}
           />
         ))}
@@ -139,14 +154,63 @@ export function TicketEditor({
   );
 }
 
+/**
+ * Ein Kennzeichen fuer den editorKey, das genau EINMAL wechselt: sobald der
+ * Vergleichsstand da ist - aber nur, solange noch nichts bearbeitet wurde.
+ *
+ * Hintergrund: der Vergleichsstand wird unabhaengig vom Ticket geladen und
+ * trifft deshalb kurz nach ihm ein. Milkdown liest ihn nur beim Aufbau, also
+ * muss der Editor dafuer einmal neu aufgebaut werden. Ein Neuaufbau verwirft
+ * jedoch die Undo-Historie - und wer in diesem Sekundenbruchteil schon tippt,
+ * verloere sein Strg+Z.
+ *
+ * Deshalb wird der Wechsel einmalig festgehalten. Ohne dieses Einfrieren
+ * wuerde der Schluessel beim ersten Tastendruck erneut wechseln und genau den
+ * Neuaufbau ausloesen, den er verhindern soll.
+ */
+function useBaselineStamp(
+  baselineLoaded: boolean,
+  hasUnsavedChanges: boolean,
+  ticketId: string | null,
+): string {
+  const [stamp, setStamp] = useState('pending');
+
+  useEffect(() => {
+    setStamp('pending');
+  }, [ticketId]);
+
+  useEffect(() => {
+    // Nur der Weg von "noch nichts da" nach "da" zaehlt, und nur im
+    // unberuehrten Zustand.
+    setStamp((current) => {
+      if (current !== 'pending') return current;
+      if (!baselineLoaded || hasUnsavedChanges) return current;
+      return 'ready';
+    });
+  }, [baselineLoaded, hasUnsavedChanges]);
+
+  return stamp;
+}
+
 interface FieldSectionProps {
   editorKey: string;
   field: TicketField;
   value: string;
+  /** Feldwert im letzten Commit; null = kein Vergleichsstand. */
+  baseline: string | null;
+  /** Warum es keinen gibt - nur zur Anzeige, wenn baseline null ist. */
+  baselineReason: string | null;
   onChange: (next: string) => void;
 }
 
-function FieldSection({ editorKey, field, value, onChange }: FieldSectionProps) {
+function FieldSection({
+  editorKey,
+  field,
+  value,
+  baseline,
+  baselineReason,
+  onChange,
+}: FieldSectionProps) {
   const visual = allowsVisualEditor(field.dialect);
 
   return (
@@ -156,6 +220,14 @@ function FieldSection({ editorKey, field, value, onChange }: FieldSectionProps) 
         <span className="ticket-badge" title="Format des Feldes - bleibt erhalten">
           {DIALECT_LABEL[field.dialect]}
         </span>
+        {/* Ohne diesen Hinweis waere fehlendes Gruen mehrdeutig: keine
+            Aenderung oder kein Vergleich? Nur beim visuellen Editor, denn
+            nur dort gibt es die Markierung ueberhaupt. */}
+        {visual && baseline === null && baselineReason && (
+          <span className="ticket-badge ticket-badge-muted" title={baselineReason}>
+            ohne Vergleich
+          </span>
+        )}
       </div>
 
       {!visual && (
@@ -167,7 +239,12 @@ function FieldSection({ editorKey, field, value, onChange }: FieldSectionProps) 
       )}
 
       {visual ? (
-        <MilkdownDescriptionEditor key={editorKey} initialValue={value} onChange={onChange} />
+        <MilkdownDescriptionEditor
+          key={editorKey}
+          initialValue={value}
+          baseline={baseline}
+          onChange={onChange}
+        />
       ) : (
         <HtmlSourceEditor value={value} onChange={onChange} />
       )}
