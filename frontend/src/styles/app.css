@@ -2185,6 +2185,34 @@ body {
     margin: 0.8rem 0;
 }
 
+/* Eingebettetes Diagramm (<img> allein auf einer Zeile) - siehe imageBlock.ts. */
+.ticket-milkdown-surface .ticket-image-block {
+    margin: 0.6rem 0;
+}
+
+/*
+ * max-width haelt auch ein grosses Diagramm in der Spalte; height:auto
+ * bewahrt dabei das Seitenverhaeltnis. Der Rahmen macht die Bildgrenze auf
+ * hellem wie dunklem Untergrund sichtbar - Mermaid-Diagramme haben selbst
+ * einen weissen Hintergrund.
+ */
+.ticket-milkdown-surface .ticket-image {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #fff;
+}
+
+/*
+ * Ein ausgewaehlter Block (Klick auf das Bild) ist sonst nicht erkennbar:
+ * der Knoten ist ein Atom, ProseMirror setzt dafuer diese Klasse.
+ */
+.ticket-milkdown-surface .ticket-image-block.ProseMirror-selectednode .ticket-image {
+    outline: 2px solid var(--accent);
+}
+
 /* HTML-Dialekt: Quelltext links, Vorschau rechts. */
 .ticket-html-editor {
     flex: 1;

@@ -18,6 +18,7 @@ import {
   remarkHighlightPlugin,
   toggleHighlightCommand,
 } from './highlightMark';
+import { imageBlockSchema, remarkImageBlockPlugin } from './imageBlock';
 import { intraWordUnderscoreHandler } from './underscoreEscape';
 import { EditorToolbar } from './EditorToolbar';
 import { toggleTaskListCommand } from './taskListCommand';
@@ -178,6 +179,12 @@ export function MilkdownDescriptionEditor({
       .use(highlightSchema)
       .use(toggleHighlightCommand)
       .use(highlightKeymap)
+      // Eingebettete Diagramme (<img> allein auf einer Zeile) als sichtbares
+      // Bild statt als roher Tag - siehe imageBlock.ts. Das Plugin muss wie
+      // bei der Markierung mit dabei sein, sonst erreicht der umgebaute Knoten
+      // das Schema nicht.
+      .use(remarkImageBlockPlugin)
+      .use(imageBlockSchema)
       // Befehle fuer die Werkzeugleiste, die Milkdown nicht fertig mitbringt:
       // Aufgabenliste (nur als Eingaberegel vorhanden) und die
       // Tabellen-Loeschbefehle (liegen in prosemirror-tables).
