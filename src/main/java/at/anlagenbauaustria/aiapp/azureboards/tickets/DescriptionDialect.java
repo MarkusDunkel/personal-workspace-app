@@ -36,7 +36,7 @@ public enum DescriptionDialect {
      * Vergleiche wie "a &lt; b" oder Platzhalter in spitzen Klammern, die kein
      * HTML sind.
      *
-     * Zwei Tags stehen ABSICHTLICH nicht in dieser Liste, weil sie in diesem
+     * Drei Tags stehen ABSICHTLICH nicht in dieser Liste, weil sie in diesem
      * Bestand auch in reinem Markdown vorkommen und es dort nicht zu HTML
      * machen:
      *
@@ -52,11 +52,35 @@ public enum DescriptionDialect {
      * nachgemessen: alle 21 bzw. 4 Vorkommen bleiben erhalten. Waere es hier
      * aufgefuehrt, landeten genau die beiden groessten, am staerksten
      * strukturierten Fachdokumente im Quelltext-Editor.
+     *
+     * &lt;img&gt; ALLEIN AUF EINER ZEILE ist die einzige Moeglichkeit, ein
+     * Azure-Attachment einzubetten, dessen Adresse eine Abfrage traegt
+     * ("...attachments/&lt;guid&gt;?fileName=x.png"): die Markdown-Kurzform
+     * "![alt](url)" ist hier nicht gleichwertig, weil nur der Tag alt-Text und
+     * Attribute so hinterlegt, wie Azure sie beim Rendern erwartet. Der Fall
+     * tritt seit den eingebetteten Mermaid-Diagrammen auf (Ticket 584, dort
+     * neben &lt;mark&gt; der einzige Tag) und ueberlebt den Roundtrip
+     * unveraendert - remark liest die Zeile als html-Blockknoten und schreibt
+     * sie zeichengleich zurueck, inklusive src und alt (nachgemessen am echten
+     * Wert des Tickets).
+     *
+     * Die Ausnahme gilt bewusst NUR fuer den allein stehenden Block. Ein
+     * &lt;img&gt; INNERHALB eines Fliesstextes oder in Azure-Markup bleibt HTML,
+     * denn dort steht es ohnehin neben &lt;div&gt;/&lt;p&gt;/&lt;span&gt;, die
+     * weiterhin in dieser Liste stehen - siehe of().
      */
     private static final Pattern HTML_TAG = Pattern.compile(
             "<(?:/?)(?:div|p|b|i|u|ul|ol|li|span|a|table|thead|tbody|tr|td|th"
                     + "|h[1-6]|strong|em|img|pre|blockquote)\\b[^>]*>",
             Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Ein &lt;img&gt;-Tag, das eine Zeile fuer sich allein belegt (nur
+     * Leerraum davor und dahinter). Genau diese Form schreibt die Pipeline fuer
+     * eingebettete Diagramme, und genau sie ueberlebt den Markdown-Roundtrip.
+     */
+    private static final Pattern STANDALONE_IMG = Pattern.compile(
+            "(?im)^[ \\t]*<img\\b[^>]*>[ \\t]*$");
 
     /** Zeilentrenner in Azure-Texten, in beiden Dialekten moeglich. */
     private static final Pattern LINE_BREAK_TAG = Pattern.compile("(?i)<br\\s*/?>");
@@ -79,7 +103,14 @@ public enum DescriptionDialect {
         // "## Roadmap-Historie<br>| Version |" als reines Markdown durch und
         // nicht als Mischform (das betrifft 205 Tickets).
         String normalized = LINE_BREAK_TAG.matcher(rawDescription).replaceAll("\n");
-        boolean html = HTML_TAG.matcher(normalized).find();
+        // Allein stehende <img>-Zeilen vor der HTML-Suche entfernen - sonst
+        // fiele ein eingebettetes Diagramm als HTML durch und das ganze
+        // Fachdokument landete im Quelltext-Editor (Ticket 584). Erst NACH der
+        // <br>-Normalisierung, weil ein "<br><img ...><br>" sonst keine eigene
+        // Zeile waere. Entfernt wird nur fuer die ERKENNUNG; der gespeicherte
+        // Wert bleibt unberuehrt.
+        String forHtmlSearch = STANDALONE_IMG.matcher(normalized).replaceAll("");
+        boolean html = HTML_TAG.matcher(forHtmlSearch).find();
         boolean markdown = MARKDOWN_MARKER.matcher(normalized).find();
 
         if (html && markdown) {

@@ -72,6 +72,42 @@ class DescriptionDialectTest {
         assertThat(DescriptionDialect.of(real).allowsVisualEditor()).isTrue();
     }
 
+    /**
+     * Ein eingebettetes Diagramm macht ein Markdown-Dokument NICHT zu HTML.
+     * Realfall Ticket 584 (technical): reines Markdown, dessen einzige Tags
+     * &lt;mark&gt; und EIN allein stehendes &lt;img&gt; auf ein
+     * Azure-Attachment sind. Es landete dadurch als MIXED im Quelltext-Editor.
+     */
+    @Test
+    void standaloneImageDoesNotMakeItHtml() {
+        String real = "## Ziel\n\nAngestrebt wird eine Baumstruktur.\n\n"
+                + "<img src=\"https://dev.azure.com/anlagenbau-austria/26e119fa/_apis/wit/"
+                + "attachments/2c0c85b7?fileName=teamstruktur.png\" "
+                + "alt=\"Teamstruktur: Baumdiagramm\">\n\n"
+                + "*Diagrammquelle:* `assets/teamstruktur.mmd`";
+        assertThat(DescriptionDialect.of(real)).isEqualTo(DescriptionDialect.MARKDOWN);
+        assertThat(DescriptionDialect.of(real).allowsVisualEditor()).isTrue();
+    }
+
+    /** Dieselbe Zeile, aber mit &lt;br&gt; statt echtem Umbruch abgetrennt. */
+    @Test
+    void standaloneImageBetweenBrBreaksIsStillMarkdown() {
+        String real = "## Ziel<br>Angestrebt wird eine Baumstruktur."
+                + "<br><img src=\"http://x/a.png\" alt=\"Diagramm\"><br>| A |<br>|---|";
+        assertThat(DescriptionDialect.of(real)).isEqualTo(DescriptionDialect.MARKDOWN);
+    }
+
+    /**
+     * Die Ausnahme gilt nur fuer den allein stehenden Block: ein &lt;img&gt;
+     * mitten im Azure-Markup bleibt HTML - dort steht es neben
+     * &lt;div&gt;/&lt;p&gt;, die die Formatierung tragen.
+     */
+    @Test
+    void imageInsideAzureMarkupStaysHtml() {
+        assertThat(DescriptionDialect.of("<div>Skizze: <img src=\"http://x/a.png\"></div>"))
+                .isEqualTo(DescriptionDialect.HTML);
+    }
+
     /** Echter Mischfall: HTML-Kopf, danach eine Markdown-Tabelle. */
     @Test
     void htmlHeaderFollowedByMarkdownTableIsMixed() {
