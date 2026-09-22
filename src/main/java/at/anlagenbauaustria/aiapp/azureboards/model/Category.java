@@ -13,19 +13,31 @@ package at.anlagenbauaustria.aiapp.azureboards.model;
  * root-bezogenen Ids-Vergleich (siehe plan_changes.missing_ids_global).
  */
 public enum Category {
-    MAIN("main"),
-    TECHNICAL("technical"),
-    COSTS("costs");
+    MAIN("main", "Digital Transformation"),
+    TECHNICAL("technical", "Technische Entwicklung"),
+    COSTS("costs", "Kosten und Ressourcen");
 
     private final String segment;
+    private final String azureProject;
 
-    Category(String segment) {
+    Category(String segment, String azureProject) {
         this.segment = segment;
+        this.azureProject = azureProject;
     }
 
     /** Der Ordner-/Skriptname in ai-vault (z.B. "main", "technical"). */
     public String segment() {
         return segment;
+    }
+
+    /**
+     * Der Name des Azure-DevOps-Projekts. Muss zu PROJECT in der jeweiligen
+     * pipelines/azure_boards/json/&lt;kategorie&gt;/config.py passen - daher
+     * kommen die Tickets, und nur unter diesem Namen sind sie im Browser
+     * erreichbar.
+     */
+    public String azureProject() {
+        return azureProject;
     }
 
     public static Category fromSegment(String value) {

@@ -20,3 +20,10 @@ spring:
 # aivault.root: C:/Users/<user>/OneDrive - Anlagenbau Austria GmbH/ai-vault
 aivault:
   root: 'C:\Users\markus.dunkel\OneDrive - Anlagenbau Austria GmbH\ai-vault'
+
+# Nur fuer die Verlinkung ins Original - die App spricht selbst nicht mit
+# Azure (das tun die Pipelines in ai-vault). Die Projektnamen je Kategorie
+# stehen in Category.java und muessen zu PROJECT in
+# pipelines/azure_boards/json/<kategorie>/config.py passen.
+azure-boards:
+  organization: anlagenbau-austria

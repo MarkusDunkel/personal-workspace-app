@@ -1,5 +1,5 @@
 import { allowsVisualEditor } from '../../api/azureTicketTypes';
-import type { DescriptionDialect } from '../../api/azureTicketTypes';
+import type { DescriptionDialect, TicketField } from '../../api/azureTicketTypes';
 import { useTicketDescription } from '../../hooks/useTicketDescription';
 import { HtmlSourceEditor } from './HtmlSourceEditor';
 import { MilkdownDescriptionEditor } from './MilkdownDescriptionEditor';
@@ -7,6 +7,8 @@ import { MilkdownDescriptionEditor } from './MilkdownDescriptionEditor';
 interface TicketEditorProps {
   category: string;
   ticketId: string | null;
+  bookmarked: boolean;
+  onToggleBookmark: (entry: { id: string; title: string; workItemType: string }) => void;
 }
 
 const DIALECT_LABEL: Record<DescriptionDialect, string> = {
@@ -18,16 +20,31 @@ const DIALECT_LABEL: Record<DescriptionDialect, string> = {
 };
 
 /**
- * Bearbeitet die Beschreibung EINES Tickets und waehlt dafuer den passenden
- * Editor.
+ * Bearbeitet die freigegebenen Felder EINES Tickets und waehlt fuer jedes den
+ * passenden Editor.
  *
- * Die Weiche faellt anhand des GELADENEN Werts, nicht nach Nutzerwunsch: nur
- * so kann eine HTML-Beschreibung gar nicht erst durch den
- * Markdown-Serialisierer laufen und dabei ihre Formatierung verlieren. Azure
+ * Die Weiche faellt JE FELD anhand des GELADENEN Werts, nicht nach
+ * Nutzerwunsch: nur so kann ein HTML-Wert gar nicht erst durch den
+ * Markdown-Serialisierer laufen und dabei seine Formatierung verlieren. Azure
  * fuehrt pro Feld einen festen Dialekt (siehe ai-vault/DESCRIPTION-FORMAT.md),
  * und der wird hier nie gewechselt.
+ *
+ * Je Feld einzeln ist dabei wesentlich: die Beschreibung eines Tickets kann
+ * Markdown sein, waehrend seine Acceptance Criteria in HTML vorliegen - am
+ * Bestand von "technical" ist genau das der Normalfall (76 von 83 User
+ * Stories). Ein gemeinsamer Dialekt schickte eines der beiden Felder in den
+ * falschen Editor.
+ *
+ * Alle Felder stehen untereinander im SELBEN Scroll-Bereich, jedes mit
+ * eigener Ueberschrift - so bleibt der Zusammenhang zwischen Beschreibung und
+ * Abnahmekriterien beim Lesen erhalten.
  */
-export function TicketEditor({ category, ticketId }: TicketEditorProps) {
+export function TicketEditor({
+  category,
+  ticketId,
+  bookmarked,
+  onToggleBookmark,
+}: TicketEditorProps) {
   const state = useTicketDescription(category, ticketId);
   const { doc } = state;
 
@@ -41,17 +58,42 @@ export function TicketEditor({ category, ticketId }: TicketEditorProps) {
     return <p className="ticket-status ticket-status-error">{state.loadError}</p>;
   }
 
-  const visual = allowsVisualEditor(doc.dialect);
-
   return (
     <div className="ticket-editor">
       <div className="ticket-editor-head">
+        <button
+          type="button"
+          className={`ticket-bookmark-button${bookmarked ? ' active' : ''}`}
+          aria-pressed={bookmarked}
+          title={bookmarked ? 'Lesezeichen entfernen' : 'Lesezeichen setzen'}
+          onClick={() =>
+            onToggleBookmark({
+              id: doc.id,
+              title: doc.title,
+              workItemType: doc.workItemType,
+            })
+          }
+        >
+          {bookmarked ? '★' : '☆'}
+        </button>
         <span className="ticket-editor-title">
           #{doc.id} {doc.title}
         </span>
-        <span className="ticket-badge" title="Format der Beschreibung - bleibt erhalten">
-          {DIALECT_LABEL[doc.dialect]}
-        </span>
+        {doc.azureUrl && (
+          // In einem neuen Tab: der Editor haelt ungespeicherte Aenderungen im
+          // Zustand der Seite, ein Wegnavigieren im selben Tab verwuerfe sie.
+          // rel gehoert zwingend zu target="_blank" - ohne noopener bekaeme
+          // die geoeffnete Seite ueber window.opener Zugriff auf diese.
+          <a
+            className="ticket-azure-link"
+            href={doc.azureUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Original in Azure Boards öffnen (neuer Tab)"
+          >
+            Azure ↗
+          </a>
+        )}
         <span className="ticket-save-status">{state.saveStatus}</span>
       </div>
 
@@ -70,14 +112,6 @@ export function TicketEditor({ category, ticketId }: TicketEditorProps) {
         </p>
       )}
 
-      {!visual && (
-        <p className="ticket-status ticket-status-warn">
-          Beschreibung liegt als {DIALECT_LABEL[doc.dialect]} vor und wird im Quelltext
-          bearbeitet. Ein visueller Editor müsste sie nach Markdown umschreiben und
-          verlöre dabei Formatierung, die Azure so erwartet.
-        </p>
-      )}
-
       {state.conflict && (
         <p className="ticket-status ticket-status-error">
           {state.conflict}{' '}
@@ -87,18 +121,56 @@ export function TicketEditor({ category, ticketId }: TicketEditorProps) {
         </p>
       )}
 
-      {visual ? (
-        // key erzwingt einen Neuaufbau je Ticket - Milkdown haelt seinen
-        // Zustand ausserhalb von React, sonst bliebe die Undo-Historie des
-        // vorigen Tickets erhalten.
-        <MilkdownDescriptionEditor
-          key={`${category}:${doc.id}`}
-          initialValue={doc.description}
-          onChange={state.setDescription}
-        />
-      ) : (
-        <HtmlSourceEditor value={state.description} onChange={state.setDescription} />
-      )}
+      <div className="ticket-field-scroll">
+        {doc.fields.map((field) => (
+          <FieldSection
+            key={field.field}
+            // key ueber Ticket UND Feld: Milkdown haelt seinen Zustand
+            // ausserhalb von React, sonst bliebe die Undo-Historie des vorigen
+            // Tickets - oder des anderen Feldes - erhalten.
+            editorKey={`${category}:${doc.id}:${field.field}`}
+            field={field}
+            value={state.values[field.field] ?? ''}
+            onChange={(next) => state.setValue(field.field, next)}
+          />
+        ))}
+      </div>
     </div>
+  );
+}
+
+interface FieldSectionProps {
+  editorKey: string;
+  field: TicketField;
+  value: string;
+  onChange: (next: string) => void;
+}
+
+function FieldSection({ editorKey, field, value, onChange }: FieldSectionProps) {
+  const visual = allowsVisualEditor(field.dialect);
+
+  return (
+    <section className="ticket-field">
+      <div className="ticket-field-head">
+        <h3 className="ticket-field-label">{field.label}</h3>
+        <span className="ticket-badge" title="Format des Feldes - bleibt erhalten">
+          {DIALECT_LABEL[field.dialect]}
+        </span>
+      </div>
+
+      {!visual && (
+        <p className="ticket-status ticket-status-warn">
+          Liegt als {DIALECT_LABEL[field.dialect]} vor und wird im Quelltext bearbeitet.
+          Ein visueller Editor müsste den Wert nach Markdown umschreiben und verlöre
+          dabei Formatierung, die Azure so erwartet.
+        </p>
+      )}
+
+      {visual ? (
+        <MilkdownDescriptionEditor key={editorKey} initialValue={value} onChange={onChange} />
+      ) : (
+        <HtmlSourceEditor value={value} onChange={onChange} />
+      )}
+    </section>
   );
 }

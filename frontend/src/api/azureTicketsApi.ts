@@ -1,5 +1,6 @@
 import type {
   DescriptionDialect,
+  EditableField,
   TicketDocument,
   TicketSaveResult,
   TicketSummary,
@@ -19,10 +20,17 @@ export async function getTicket(category: string, id: string): Promise<TicketDoc
   return res.json();
 }
 
-export async function putTicketDescription(
+/**
+ * Schreibt EIN Feld des Tickets.
+ *
+ * field benennt es; der Wert reist weiterhin als "description" - so heisst das
+ * Feld im Auftrag des Servers (TicketSaveRequest), seit es nur dieses eine gab.
+ */
+export async function putTicketField(
   category: string,
   id: string,
-  description: string,
+  field: EditableField,
+  value: string,
   revision: string | null,
   dialect: DescriptionDialect,
 ): Promise<TicketSaveResult> {
@@ -31,7 +39,7 @@ export async function putTicketDescription(
     {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description, revision, dialect }),
+      body: JSON.stringify({ description: value, revision, dialect, field }),
     },
   );
   if (res.ok) return res.json();

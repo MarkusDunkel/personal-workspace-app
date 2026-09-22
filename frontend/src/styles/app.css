@@ -2022,6 +2022,24 @@ body {
     color: var(--muted);
 }
 
+/* Verweis auf das Original in Azure. Zurueckhaltend gestaltet: er steht neben
+   dem Titel, soll ihn aber nicht ueberstrahlen. */
+.ticket-azure-link {
+    flex: 0 0 auto;
+    font-size: 0.7rem;
+    padding: 0.05rem 0.45rem;
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    color: var(--muted);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.ticket-azure-link:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
 .ticket-save-status {
     margin-left: auto;
     font-size: 0.72rem;
@@ -2206,6 +2224,157 @@ body {
     border: 1px solid var(--border);
     border-radius: 0.3rem;
     background: var(--bg);
+}
+
+/* --- Mehrere Felder in einem Scroll-Bereich -------------------------------
+
+   Description und Acceptance Criteria stehen untereinander im SELBEN
+   Scroll-Bereich: fachlich gehoeren sie zusammen, und zwei getrennte
+   Rollbalken nebeneinander waeren beim Abgleichen unbrauchbar.
+
+   Das verlagert das Scrollen nach aussen. Die Editorflaechen darin duerfen
+   deshalb NICHT mehr selbst scrollen (Regeln unten): ein eigener Rollbalken je
+   Feld wuerde den gemeinsamen wieder aufheben, und die klebende Werkzeugleiste
+   klebte dann am inneren statt am aeusseren Ausschnitt. Sticky wirkt immer
+   relativ zum scrollenden Vorfahren - das ist jetzt dieser Container, und
+   genau deshalb bleibt die Leiste des gerade gelesenen Feldes oben stehen. */
+.ticket-field-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.ticket-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.ticket-field-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+
+.ticket-field-label {
+    margin: 0;
+    font-family: var(--font-ui);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+/* Innerhalb des gemeinsamen Bereichs waechst jedes Feld mit seinem Inhalt,
+   statt einen eigenen Ausschnitt aufzuspannen. flex:1 und overflow wuerden es
+   auf die Resthoehe zwingen und ihm einen zweiten Rollbalken geben. */
+.ticket-field-scroll .ticket-milkdown-wrap {
+    flex: 0 0 auto;
+    overflow-y: visible;
+}
+
+.ticket-field-scroll .ticket-html-editor {
+    flex: 0 0 auto;
+    /* Der Quelltext-Editor ist zweispaltig (Quelltext | Vorschau). Ohne eine
+       Mindesthoehe fiele er im mitwachsenden Bereich auf die Hoehe seines
+       Inhalts zusammen und liesse sich kaum bedienen. */
+    min-height: 16rem;
+}
+
+.ticket-field-scroll .ticket-html-preview {
+    overflow-y: visible;
+}
+
+/* --- Lesezeichen ----------------------------------------------------------
+
+   Stehen als eigener Block ueber der Suchliste und zeigen IMMER alle
+   gemerkten Tickets, auch die aus anderen Projekten. Sie sollen an einer
+   festen Stelle stehen: eine Merkliste, die beim Tippen wegwandert oder beim
+   Projektwechsel halb verschwaende, waere als Einstieg wertlos.
+
+   flex-shrink:0 haelt sie vor der Suchliste - ohne das gaebe der Block als
+   erstes nach, wenn der Platz knapp wird, und die Lesezeichen verschwaenden
+   genau dann, wenn viele gesetzt sind. max-height begrenzt ihn dafuer auf
+   etwa ein Drittel, damit die Suchliste darunter bedienbar bleibt. */
+.ticket-bookmarks {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    max-height: 33%;
+    min-height: 0;
+}
+
+.ticket-bookmarks-heading {
+    margin: 0;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+/* Der Eintrag traegt rechts seine eigene Entfernen-Schaltflaeche, liegt also
+   nicht mehr allein im li. Das Raster haelt beide auf einer Zeile, ohne dass
+   der Titel unter die Schaltflaeche laeuft. */
+.ticket-bookmark-row {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--border);
+}
+
+.ticket-bookmark-row .ticket-list-item {
+    border-bottom: none;
+}
+
+.ticket-bookmark-remove {
+    flex: 0 0 auto;
+    padding: 0 0.5rem;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.ticket-bookmark-remove:hover {
+    color: var(--error);
+}
+
+/* Das Projekt des Lesezeichens. Ohne diese Angabe waere bei gleichen Nummern
+   aus verschiedenen Projekten nicht erkennbar, welches Ticket gemeint ist. */
+.ticket-list-category {
+    flex: 0 0 auto;
+    font-size: 0.65rem;
+    padding: 0.02rem 0.35rem;
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    color: var(--muted);
+}
+
+/* Der Stern neben dem Titel. Gefuellt = gesetzt; die Farbe macht den Zustand
+   auch ohne Vergleich mit dem leeren Stern erkennbar. */
+.ticket-bookmark-button {
+    flex: 0 0 auto;
+    padding: 0 0.15rem;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.ticket-bookmark-button:hover {
+    color: var(--accent);
+}
+
+.ticket-bookmark-button.active {
+    color: var(--accent);
 }
 
 /* Kleines Farbfeld statt eines Symbols - zeigt unmittelbar, welche Farbe die

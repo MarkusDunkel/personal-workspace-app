@@ -7,6 +7,7 @@ import { SubmitProgressModal } from './submit/SubmitProgressModal';
 import { TicketPicker } from './tickets/TicketPicker';
 import { TicketEditor } from './tickets/TicketEditor';
 import { useAzureTickets } from '../hooks/useAzureTickets';
+import { useTicketBookmarks } from '../hooks/useTicketBookmarks';
 
 const AVAILABLE_CATEGORIES: { id: AzureBoardsCategory; label: string }[] = [
   { id: 'main', label: 'Main' },
@@ -30,6 +31,7 @@ export function AzureBoardsView() {
   const ingest = useAzureBoardsIngest();
   const digest = useAzureBoardsDigest();
   const tickets = useAzureTickets(ticketCategory);
+  const { bookmarks, isBookmarked, toggle } = useTicketBookmarks();
 
   const ingestBusy = ingest.phase === 'scanning' || ingest.phase === 'reviewing' || ingest.phase === 'applying';
 
@@ -119,9 +121,9 @@ export function AzureBoardsView() {
         <section className="azb-box azb-tickets">
           <h2 className="azb-heading">Beschreibungen bearbeiten</h2>
           <p className="azb-box-description">
-            Ändert ausschließlich <code>System.Description</code> in{' '}
-            <code>2_ai-ready</code>. Das Format je Ticket bleibt erhalten; nach Azure
-            gelangt die Änderung erst über den Digest.
+            Ändert <code>System.Description</code> in <code>2_ai-ready</code>, bei User
+            Stories in Technical zusätzlich die Acceptance Criteria. Das Format je Feld
+            bleibt erhalten; nach Azure gelangt die Änderung erst über den Digest.
           </p>
           <div className="azb-digest-category">
             <label>
@@ -148,10 +150,24 @@ export function AzureBoardsView() {
               tickets={tickets.tickets}
               loaded={tickets.loaded}
               error={tickets.error}
+              category={ticketCategory}
               selectedId={ticketId}
               onSelect={setTicketId}
+              bookmarks={bookmarks}
+              // Ein Lesezeichen kann in einem anderen Projekt liegen - dann
+              // wird dieses mit angewaehlt, sonst zeigte die Id ins Leere.
+              onSelectBookmark={(bookmark) => {
+                setTicketCategory(bookmark.category as AzureBoardsCategory);
+                setTicketId(bookmark.id);
+              }}
+              onRemoveBookmark={toggle}
             />
-            <TicketEditor category={ticketCategory} ticketId={ticketId} />
+            <TicketEditor
+              category={ticketCategory}
+              ticketId={ticketId}
+              bookmarked={ticketId !== null && isBookmarked(ticketCategory, ticketId)}
+              onToggleBookmark={(entry) => toggle({ ...entry, category: ticketCategory })}
+            />
           </div>
         </section>
 

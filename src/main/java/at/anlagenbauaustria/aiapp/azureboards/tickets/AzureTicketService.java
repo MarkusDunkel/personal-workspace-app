@@ -2,14 +2,18 @@ package at.anlagenbauaustria.aiapp.azureboards.tickets;
 
 import at.anlagenbauaustria.aiapp.azureboards.model.Category;
 import at.anlagenbauaustria.aiapp.azureboards.tickets.model.TicketDocument;
+import at.anlagenbauaustria.aiapp.azureboards.tickets.model.TicketField;
 import at.anlagenbauaustria.aiapp.azureboards.tickets.model.TicketSaveResult;
 import at.anlagenbauaustria.aiapp.azureboards.tickets.model.TicketSummary;
+import at.anlagenbauaustria.aiapp.config.AzureBoardsProperties;
 import at.anlagenbauaustria.aiapp.fs.AtomicFileWriter;
 import at.anlagenbauaustria.aiapp.fs.FsGuard;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,10 +33,17 @@ import java.util.stream.Stream;
  * und genau deswegen muss sie byte-genau so herauskommen, wie sie hereinkam
  * (siehe TicketJsonCodec).
  *
- * Geaendert wird ausschliesslich System.Description. Alle uebrigen Felder,
- * auch projektspezifische wie Custom.Kosten oder AcceptanceCriteria und selbst
- * unbekannte, laufen unveraendert durch - sie werden nie deserialisiert,
- * sondern als String-Map durchgereicht.
+ * Geaendert werden ausschliesslich die Felder aus EditableField - immer
+ * System.Description, bei User Stories in "technical" zusaetzlich
+ * Microsoft.VSTS.Common.AcceptanceCriteria. Alle uebrigen Felder, auch
+ * projektspezifische wie Custom.Kosten und selbst unbekannte, laufen
+ * unveraendert durch - sie werden nie deserialisiert, sondern als String-Map
+ * durchgereicht.
+ *
+ * Ein Feld wird nur geschrieben, wenn sein Schluessel im Ticket bereits
+ * vorhanden ist; angelegt wird nie einer. Ein neuer Schluessel landete an
+ * unbestimmter Stelle in der Reihenfolge und saehe fuer den 3-Wege-Merge wie
+ * eine Fremdaenderung aus.
  *
  * Dieser Dienst ist bewusst KEIN zweiter Weg nach Azure: er schreibt nur in
  * die KI-Zone, von wo der bestehende Weg (run_reidentify.sh, run_import.sh)
@@ -55,11 +66,17 @@ public class AzureTicketService {
     private final FsGuard fsGuard;
     private final AtomicFileWriter atomicFileWriter;
     private final TicketJsonCodec codec;
+    private final AzureBoardsProperties azureBoards;
 
-    public AzureTicketService(FsGuard fsGuard, AtomicFileWriter atomicFileWriter, TicketJsonCodec codec) {
+    public AzureTicketService(
+            FsGuard fsGuard,
+            AtomicFileWriter atomicFileWriter,
+            TicketJsonCodec codec,
+            AzureBoardsProperties azureBoards) {
         this.fsGuard = fsGuard;
         this.atomicFileWriter = atomicFileWriter;
         this.codec = codec;
+        this.azureBoards = azureBoards;
     }
 
     /** Alle Tickets eines Projekts, nach Id sortiert (numerisch, wo moeglich). */
@@ -85,22 +102,84 @@ public class AzureTicketService {
     public TicketDocument read(Category category, String ticketId) {
         Located located = locate(category, ticketId);
         LinkedHashMap<String, String> row = located.row();
+        String workItemType = value(row, TYPE_FIELD);
+        // Der Dialekt wird je Feld einzeln bestimmt: die Beschreibung eines
+        // Tickets kann Markdown sein, waehrend seine Acceptance Criteria in
+        // HTML vorliegen (am Bestand der Normalfall).
+        List<TicketField> fields = EditableField.forTicket(category, workItemType, row::containsKey)
+                .stream()
+                .map(field -> new TicketField(
+                        field,
+                        field.label(),
+                        value(row, field.jsonKey()),
+                        DescriptionDialect.of(row.get(field.jsonKey()))))
+                .toList();
         return new TicketDocument(
                 value(row, TicketJsonCodec.ID_FIELD),
                 value(row, TITLE_FIELD),
-                value(row, TYPE_FIELD),
+                workItemType,
                 located.file().getFileName().toString(),
                 DescriptionDialect.of(row.get(TicketJsonCodec.DESCRIPTION_FIELD)),
                 hasRoadmapHistory(row),
                 row.containsKey(CONFLICT_FIELD),
                 value(row, TicketJsonCodec.DESCRIPTION_FIELD),
-                revisionOf(located.file()));
+                revisionOf(located.file()),
+                fields,
+                azureUrl(category, value(row, TicketJsonCodec.ID_FIELD)));
     }
 
     /**
-     * Schreibt eine neue Beschreibung - und nur die.
+     * Adresse des Originals in Azure Boards.
      *
-     * Drei Sicherungen, in dieser Reihenfolge:
+     * Der Projektname traegt ein Leerzeichen ("Digital Transformation") und
+     * muss deshalb kodiert werden - genau wie in der Pipeline
+     * (azdo_client.build_workitem_url nutzt dafuer quote()). Ohne das bricht
+     * der Link an der Luecke ab.
+     */
+    private String azureUrl(Category category, String ticketId) {
+        if (ticketId.isBlank()) {
+            return null;
+        }
+        return azureBoards.getBaseUrl()
+                + "/" + encodePathSegment(azureBoards.getOrganization())
+                + "/" + encodePathSegment(category.azureProject())
+                + "/_workitems/edit/" + encodePathSegment(ticketId);
+    }
+
+    /**
+     * Kodiert EIN Pfadsegment.
+     *
+     * Nicht URLEncoder.encode: das kodiert fuer Formulardaten und macht aus
+     * einem Leerzeichen ein "+". In einem Pfad ist "+" aber ein gewoehnliches
+     * Zeichen - aus "Digital Transformation" wuerde ein Projekt dieses
+     * Namens mit Pluszeichen, und der Link ginge ins Leere. Gebraucht wird
+     * "%20", und genau das liefert der URI-Konstruktor.
+     */
+    private static String encodePathSegment(String value) {
+        try {
+            // Der einteilige Konstruktor wuerde den Wert als fertige URI lesen;
+            // dieser hier kodiert ihn als Pfadbestandteil.
+            return new URI(null, null, value, null).getRawPath();
+        } catch (URISyntaxException e) {
+            throw new IllegalStateException("Konnte '" + value + "' nicht fuer eine URL kodieren.", e);
+        }
+    }
+
+    /** Kurzform fuer das Feld, das es in jedem Ticket gibt. */
+    public TicketSaveResult writeDescription(
+            Category category, String ticketId, String description,
+            String expectedRevision, DescriptionDialect expectedDialect) {
+        return writeField(
+                category, ticketId, EditableField.DESCRIPTION, description,
+                expectedRevision, expectedDialect);
+    }
+
+    /**
+     * Schreibt einen neuen Wert in EIN bearbeitbares Feld - und nur dorthin.
+     *
+     * Vorgeschaltet der Zuschnitt (EditableField.appliesTo): nur Felder, die
+     * fuer dieses Projekt und diesen Work-Item-Typ freigegeben sind. Danach
+     * drei Sicherungen, in dieser Reihenfolge:
      *
      * 1. Revision: hat sich die Datei seit dem Laden geaendert, wird
      *    abgelehnt (409) statt fremde Aenderungen zu ueberschreiben.
@@ -117,12 +196,23 @@ public class AzureTicketService {
      * dann lieber gar nicht schreiben als ein Diff ueber die ganze Datei zu
      * erzeugen und den 3-Wege-Merge zu stoeren.
      */
-    public TicketSaveResult writeDescription(
-            Category category, String ticketId, String description,
+    public TicketSaveResult writeField(
+            Category category, String ticketId, EditableField field, String newValue,
             String expectedRevision, DescriptionDialect expectedDialect) {
 
         Located located = locate(category, ticketId);
         Path file = located.file();
+        String fieldKey = field.jsonKey();
+
+        // Zuschnitt zuerst: ein Feld, das dieses Ticket gar nicht anbietet,
+        // wird auch dann nicht geschrieben, wenn der Schluessel zufaellig
+        // vorhanden ist (etwa leere Acceptance Criteria an einem Epic).
+        if (!field.appliesTo(category, value(located.row(), TYPE_FIELD))) {
+            throw new IllegalArgumentException(
+                    "Feld " + fieldKey + " ist fuer Ticket " + ticketId + " (" + category.segment()
+                            + ", " + value(located.row(), TYPE_FIELD) + ") nicht zur Bearbeitung"
+                            + " freigegeben.");
+        }
 
         String currentRevision = revisionOf(file);
         if (expectedRevision != null && !expectedRevision.equals(currentRevision)) {
@@ -133,22 +223,22 @@ public class AzureTicketService {
         }
 
         LinkedHashMap<String, String> row = located.row();
-        String current = row.get(TicketJsonCodec.DESCRIPTION_FIELD);
+        String current = row.get(fieldKey);
         DescriptionDialect currentDialect = DescriptionDialect.of(current);
         if (expectedDialect != null && expectedDialect != currentDialect) {
             throw new TicketConflictException(
-                    "Das Beschreibungsfeld von Ticket " + ticketId + " liegt inzwischen als "
+                    "Das Feld " + field.label() + " von Ticket " + ticketId + " liegt inzwischen als "
                             + currentDialect + " vor, der Entwurf stammt aus " + expectedDialect
                             + ". Bitte neu laden.");
         }
 
-        String next = description == null ? "" : description;
+        String next = newValue == null ? "" : newValue;
         if (next.equals(current == null ? "" : current)) {
             return new TicketSaveResult(false, currentRevision);
         }
-        if (!row.containsKey(TicketJsonCodec.DESCRIPTION_FIELD)) {
+        if (!row.containsKey(fieldKey)) {
             throw new IllegalStateException(
-                    "Ticket " + ticketId + " hat kein Feld " + TicketJsonCodec.DESCRIPTION_FIELD
+                    "Ticket " + ticketId + " hat kein Feld " + fieldKey
                             + " - ein neues Feld wuerde an falscher Stelle einsortiert.");
         }
 
@@ -166,7 +256,7 @@ public class AzureTicketService {
                 .filter(r -> ticketId.equals(r.get(TicketJsonCodec.ID_FIELD)))
                 .findFirst()
                 .orElseThrow(() -> new UnknownTicketException(category, ticketId))
-                .put(TicketJsonCodec.DESCRIPTION_FIELD, next);
+                .put(fieldKey, next);
 
         atomicWrite(file, codec.writeRows(rows));
         return new TicketSaveResult(true, revisionOf(file));

@@ -23,11 +23,38 @@ export interface TicketSummary {
   hasConflicts: boolean;
 }
 
+/** Mirrors EditableField.java - die Felder, die bearbeitet werden duerfen. */
+export type EditableField = 'DESCRIPTION' | 'ACCEPTANCE_CRITERIA';
+
+export interface TicketField {
+  field: EditableField;
+  /** Ueberschrift im Editor, vom Server vorgegeben. */
+  label: string;
+  /** Der Rohwert, genau wie er in der Datei steht. */
+  value: string;
+  /**
+   * Je Feld einzeln bestimmt: die Beschreibung kann Markdown sein, waehrend
+   * die Acceptance Criteria desselben Tickets in HTML vorliegen.
+   */
+  dialect: DescriptionDialect;
+}
+
 export interface TicketDocument extends TicketSummary {
   /** Der Rohwert, genau wie er in der Datei steht. */
   description: string;
   /** Opaker Aenderungsmarker der DATEI, unveraendert zurueckzugeben. */
   revision: string;
+  /**
+   * Was dieses Ticket bearbeiten laesst: immer die Beschreibung, bei User
+   * Stories in "technical" zusaetzlich die Acceptance Criteria. Reihenfolge
+   * wie im Editor.
+   */
+  fields: TicketField[];
+  /**
+   * Adresse des Originals in Azure Boards. Kommt fertig vom Server, damit
+   * Organisation und Projektname nicht im Frontend festgeschrieben sind.
+   */
+  azureUrl: string | null;
 }
 
 export interface TicketSaveResult {

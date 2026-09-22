@@ -58,8 +58,14 @@ public class AzureTicketController {
             @PathVariable String category,
             @PathVariable String id,
             @RequestBody TicketSaveRequest body) {
-        return service.writeDescription(
-                Category.fromSegment(category), id, body.description(), body.revision(), body.dialect());
+        // Ohne Feldangabe die Beschreibung - so verhaelt sich ein Auftrag aus
+        // der Zeit, als es nur dieses eine Feld gab, unveraendert.
+        EditableField field = body.field() == null
+                ? EditableField.DESCRIPTION
+                : EditableField.fromName(body.field());
+        return service.writeField(
+                Category.fromSegment(category), id, field,
+                body.description(), body.revision(), body.dialect());
     }
 
     /**

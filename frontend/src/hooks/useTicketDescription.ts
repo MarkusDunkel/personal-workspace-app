@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getTicket, putTicketDescription, TicketConflictError } from '../api/azureTicketsApi';
-import type { TicketDocument } from '../api/azureTicketTypes';
+import { getTicket, putTicketField, TicketConflictError } from '../api/azureTicketsApi';
+import type { EditableField, TicketDocument } from '../api/azureTicketTypes';
 
 /**
- * Laedt die Beschreibung eines Tickets, haelt den Bearbeitungsstand und
- * speichert ihn - aufgebaut wie useWorkspaceDocument, mit denselben teuer
+ * Laedt die bearbeitbaren Felder eines Tickets, haelt ihren Bearbeitungsstand
+ * und speichert ihn - aufgebaut wie useWorkspaceDocument, mit denselben teuer
  * erarbeiteten Eigenschaften:
  *
  * - Debounce, damit nicht jeder Tastendruck schreibt.
@@ -12,24 +12,31 @@ import type { TicketDocument } from '../api/azureTicketTypes';
  * - Ein Konflikt (409) PAUSIERT das Speichern bis zum Neuladen, statt es in
  *   einer Schleife zu wiederholen.
  *
- * Zusaetzlich hier: originalRef haelt den geladenen Rohwert. Solange der
- * Entwurf damit identisch ist, gilt nichts als geaendert - Oeffnen ohne
- * Bearbeiten loest also keinen Schreibvorgang aus. Der Server prueft das
- * unabhaengig noch einmal (AzureTicketService.writeDescription), diese Ebene
- * spart nur den Aufruf.
+ * Zusaetzlich hier: originalsRef haelt die geladenen Rohwerte JE FELD. Solange
+ * ein Entwurf damit identisch ist, gilt das Feld als unveraendert - Oeffnen
+ * ohne Bearbeiten loest also keinen Schreibvorgang aus. Der Server prueft das
+ * unabhaengig noch einmal (AzureTicketService.writeField), diese Ebene spart
+ * nur den Aufruf.
+ *
+ * Gespeichert wird FELDWEISE, in einem Aufruf je geaendertem Feld. Ein
+ * gemeinsamer Auftrag waere zwar sparsamer, wuerde aber die Zusage aufgeben,
+ * dass ein Speichervorgang genau ein Feld beruehrt - und der Dialekt-Abgleich
+ * gilt ohnehin je Feld. Die Aufrufe laufen deshalb NACHEINANDER: jeder
+ * liefert eine neue Revision, die der naechste braucht.
  */
 const SAVE_DEBOUNCE_MS = 1200;
 
 export interface UseTicketDescription {
   doc: TicketDocument | null;
-  description: string;
+  /** Der aktuelle Entwurf je Feld, unter dem Feldnamen. */
+  values: Record<string, string>;
   loading: boolean;
   loadError: string | null;
   saveStatus: string;
   /** Die Datei wurde von aussen geaendert - Speichern ruht bis zum Neuladen. */
   conflict: string | null;
   hasUnsavedChanges: boolean;
-  setDescription: (next: string) => void;
+  setValue: (field: EditableField, next: string) => void;
   reload: () => void;
   saveNow: () => Promise<void>;
 }
@@ -39,7 +46,7 @@ export function useTicketDescription(
   ticketId: string | null,
 ): UseTicketDescription {
   const [doc, setDoc] = useState<TicketDocument | null>(null);
-  const [description, setDescriptionState] = useState('');
+  const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState('Bereit');
@@ -49,14 +56,14 @@ export function useTicketDescription(
 
   // Refs, weil save() sie liest: eine veraltete Closure waere hier ein
   // Korrektheitsfehler (dieselbe Begruendung wie in useWorkspaceDocument).
-  const descriptionRef = useRef(description);
-  const originalRef = useRef('');
+  const valuesRef = useRef(values);
+  const originalsRef = useRef<Record<string, string>>({});
   const docRef = useRef<TicketDocument | null>(null);
   const dirtyRef = useRef(false);
   const conflictRef = useRef<string | null>(null);
   const timerRef = useRef<number | null>(null);
 
-  descriptionRef.current = description;
+  valuesRef.current = values;
   docRef.current = doc;
   dirtyRef.current = dirty;
   conflictRef.current = conflict;
@@ -65,8 +72,8 @@ export function useTicketDescription(
     let cancelled = false;
     if (!ticketId) {
       setDoc(null);
-      setDescriptionState('');
-      originalRef.current = '';
+      setValues({});
+      originalsRef.current = {};
       setDirty(false);
       setConflict(null);
       setLoadError(null);
@@ -79,9 +86,11 @@ export function useTicketDescription(
     getTicket(category, ticketId)
       .then((loaded) => {
         if (cancelled) return;
+        const loadedValues: Record<string, string> = {};
+        for (const f of loaded.fields) loadedValues[f.field] = f.value;
         setDoc(loaded);
-        setDescriptionState(loaded.description);
-        originalRef.current = loaded.description;
+        setValues(loadedValues);
+        originalsRef.current = { ...loadedValues };
         setSaveStatus('Bereit');
         setLoading(false);
       })
@@ -99,24 +108,39 @@ export function useTicketDescription(
   const save = useCallback(async () => {
     const current = docRef.current;
     if (!current || !dirtyRef.current || conflictRef.current) return;
+
+    const changed = current.fields.filter(
+      (f) => (valuesRef.current[f.field] ?? '') !== (originalsRef.current[f.field] ?? ''),
+    );
+    if (changed.length === 0) return;
+
     setSaveStatus('speichert…');
+    // Jeder Schreibvorgang aendert die Datei und damit ihre Revision; der
+    // naechste muss die neue mitbringen, sonst lehnt der Server ihn als
+    // Fremdaenderung ab. Deshalb nacheinander und nicht parallel.
+    let revision = current.revision;
     try {
-      const result = await putTicketDescription(
-        category,
-        current.id,
-        descriptionRef.current,
-        current.revision,
-        current.dialect,
-      );
-      originalRef.current = descriptionRef.current;
+      for (const field of changed) {
+        const value = valuesRef.current[field.field] ?? '';
+        const result = await putTicketField(
+          category,
+          current.id,
+          field.field,
+          value,
+          revision,
+          field.dialect,
+        );
+        revision = result.revision;
+        originalsRef.current[field.field] = value;
+      }
       setDirty(false);
-      setDoc({ ...current, description: descriptionRef.current, revision: result.revision });
-      setSaveStatus(
-        result.changed
-          ? 'Gespeichert ' + new Date().toLocaleTimeString()
-          : 'Unveraendert - nichts zu speichern',
-      );
+      setDoc({ ...current, revision });
+      setSaveStatus('Gespeichert ' + new Date().toLocaleTimeString());
     } catch (err) {
+      // Was vor dem Fehler durchlief, ist geschrieben - originalsRef wurde
+      // je Feld einzeln nachgezogen. Die Revision im Dokument muss deshalb
+      // mitwandern, sonst scheiterte auch ein Wiederholungsversuch.
+      setDoc({ ...current, revision });
       if (err instanceof TicketConflictError) {
         // Absichtlich dirty lassen: die Aenderung steht in der Oberflaeche,
         // wurde aber nicht geschrieben. Weiterversuche waeren zwecklos, bis
@@ -129,13 +153,20 @@ export function useTicketDescription(
     }
   }, [category]);
 
-  const setDescription = useCallback(
-    (next: string) => {
-      setDescriptionState(next);
-      // Gegen den geladenen Rohwert vergleichen, nicht gegen den letzten
+  const setValue = useCallback(
+    (field: EditableField, next: string) => {
+      setValues((current) => {
+        const updated = { ...current, [field]: next };
+        valuesRef.current = updated;
+        return updated;
+      });
+      // Gegen die geladenen Rohwerte vergleichen, nicht gegen den letzten
       // Entwurf: tippt jemand ein Zeichen und loescht es wieder, ist das
-      // keine Aenderung.
-      const changed = next !== originalRef.current;
+      // keine Aenderung. Geprueft ueber ALLE Felder - ein anderes kann
+      // weiterhin offene Aenderungen tragen.
+      const changed = Object.keys({ ...originalsRef.current, [field]: next }).some(
+        (key) => (valuesRef.current[key] ?? '') !== (originalsRef.current[key] ?? ''),
+      );
       setDirty(changed);
       if (!changed || conflictRef.current) return;
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
@@ -170,13 +201,13 @@ export function useTicketDescription(
 
   return {
     doc,
-    description,
+    values,
     loading,
     loadError,
     saveStatus,
     conflict,
     hasUnsavedChanges: dirty,
-    setDescription,
+    setValue,
     reload,
     saveNow: save,
   };

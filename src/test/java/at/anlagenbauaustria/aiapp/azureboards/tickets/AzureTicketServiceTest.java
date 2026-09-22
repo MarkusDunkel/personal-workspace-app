@@ -2,9 +2,11 @@ package at.anlagenbauaustria.aiapp.azureboards.tickets;
 
 import at.anlagenbauaustria.aiapp.azureboards.model.Category;
 import at.anlagenbauaustria.aiapp.azureboards.tickets.model.TicketDocument;
+import at.anlagenbauaustria.aiapp.azureboards.tickets.model.TicketField;
 import at.anlagenbauaustria.aiapp.azureboards.tickets.model.TicketSaveResult;
 import at.anlagenbauaustria.aiapp.azureboards.tickets.model.TicketSummary;
 import at.anlagenbauaustria.aiapp.config.AivaultProperties;
+import at.anlagenbauaustria.aiapp.config.AzureBoardsProperties;
 import at.anlagenbauaustria.aiapp.fs.AtomicFileWriter;
 import at.anlagenbauaustria.aiapp.fs.FsGuard;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,6 +30,31 @@ class AzureTicketServiceTest {
 
     private AzureTicketService service;
     private Path mainDir;
+    private Path technicalDir;
+
+    /**
+     * Zwei technical-Tickets: eine User Story (mit Acceptance Criteria, wie im
+     * Bestand als HTML) und ein Epic, das den Schluessel zwar traegt, ihn aber
+     * leer laesst - dort darf das Feld nicht angeboten werden.
+     */
+    private static final String TECHNICAL_JSON = """
+            [
+              {
+                "System.Id": "350",
+                "System.Title": "Keycloak-Konzept",
+                "System.Description": "Als Entwickler moechte ich ...",
+                "System.WorkItemType": "User Story",
+                "Microsoft.VSTS.Common.AcceptanceCriteria": "<div><ul><li>Konzept liegt vor</li></ul></div>"
+              },
+              {
+                "System.Id": "349",
+                "System.Title": "Authentication",
+                "System.Description": "## Ueberblick",
+                "System.WorkItemType": "Epic",
+                "Microsoft.VSTS.Common.AcceptanceCriteria": ""
+              }
+            ]
+            """;
 
     /** Zwei Tickets, eines mit HTML- und eines mit Markdown-Beschreibung. */
     private static final String FILE_JSON = """
@@ -51,16 +78,21 @@ class AzureTicketServiceTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        mainDir = aivaultRoot.resolve("2_ai-ready").resolve("azure_boards").resolve("json").resolve("main");
+        Path json = aivaultRoot.resolve("2_ai-ready").resolve("azure_boards").resolve("json");
+        mainDir = json.resolve("main");
         Files.createDirectories(mainDir);
         Files.writeString(mainDir.resolve("1_zeiterfassung-tb.json"), FILE_JSON, StandardCharsets.UTF_8);
+        technicalDir = json.resolve("technical");
+        Files.createDirectories(technicalDir);
+        Files.writeString(technicalDir.resolve("349_authentication.json"), TECHNICAL_JSON, StandardCharsets.UTF_8);
 
         AivaultProperties properties = new AivaultProperties();
         properties.setRoot(aivaultRoot);
         service = new AzureTicketService(
                 new FsGuard(properties),
                 new AtomicFileWriter(),
-                new TicketJsonCodec(new ObjectMapper()));
+                new TicketJsonCodec(new ObjectMapper()),
+                new AzureBoardsProperties());
     }
 
     private String fileContent() throws IOException {
@@ -211,5 +243,136 @@ class AzureTicketServiceTest {
     @Test
     void emptyProjectDirectoryYieldsEmptyList() {
         assertThat(service.list(Category.COSTS)).isEmpty();
+    }
+
+    // ---------------------------------------------------------------------
+    // Verlinkung ins Original
+    // ---------------------------------------------------------------------
+
+    /**
+     * Der Projektname traegt ein Leerzeichen und muss als "%20" erscheinen -
+     * NICHT als "+". URLEncoder.encode kodiert fuer Formulardaten und lieferte
+     * hier "Digital+Transformation"; im Pfad ist "+" ein gewoehnliches Zeichen,
+     * und der Link zeigte auf ein Projekt, das es nicht gibt.
+     */
+    @Test
+    void azureUrlEncodesTheProjectNameForAPath() {
+        TicketDocument doc = service.read(Category.MAIN, "2");
+
+        assertThat(doc.azureUrl()).isEqualTo(
+                "https://dev.azure.com/anlagenbau-austria/Digital%20Transformation"
+                        + "/_workitems/edit/2");
+        assertThat(doc.azureUrl()).doesNotContain("+");
+    }
+
+    /** Jede Kategorie zeigt auf ihr eigenes Azure-Projekt. */
+    @Test
+    void azureUrlUsesTheProjectOfTheCategory() {
+        assertThat(service.read(Category.TECHNICAL, "350").azureUrl())
+                .isEqualTo("https://dev.azure.com/anlagenbau-austria/Technische%20Entwicklung"
+                        + "/_workitems/edit/350");
+    }
+
+    // ---------------------------------------------------------------------
+    // Zuschnitt der bearbeitbaren Felder (EditableField)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Ausserhalb von technical gibt es nur die Beschreibung. Die Acceptance
+     * Criteria existiert in main gar nicht als Schluessel - sie anzubieten
+     * hiesse, einen neuen in die Datei zu schreiben.
+     */
+    @Test
+    void mainOffersOnlyTheDescription() {
+        TicketDocument doc = service.read(Category.MAIN, "2");
+
+        assertThat(doc.fields()).extracting(TicketField::field)
+                .containsExactly(EditableField.DESCRIPTION);
+    }
+
+    /**
+     * Der Kern der Erweiterung: User Story in technical bekommt beide Felder,
+     * in dieser Reihenfolge - Beschreibung zuerst, Acceptance Criteria darunter.
+     */
+    @Test
+    void technicalUserStoryOffersDescriptionAndAcceptanceCriteria() {
+        TicketDocument doc = service.read(Category.TECHNICAL, "350");
+
+        assertThat(doc.fields()).extracting(TicketField::field)
+                .containsExactly(EditableField.DESCRIPTION, EditableField.ACCEPTANCE_CRITERIA);
+        assertThat(doc.fields().get(1).value())
+                .isEqualTo("<div><ul><li>Konzept liegt vor</li></ul></div>");
+    }
+
+    /**
+     * Der Dialekt gilt JE FELD. Hier ist die Beschreibung Text und die
+     * Acceptance Criteria HTML - am Bestand von technical der Normalfall.
+     * Ein gemeinsamer Dialekt schickte eines der beiden in den falschen Editor.
+     */
+    @Test
+    void dialectIsDeterminedPerField() {
+        TicketDocument doc = service.read(Category.TECHNICAL, "350");
+
+        assertThat(doc.fields().get(0).dialect()).isEqualTo(DescriptionDialect.PLAIN);
+        assertThat(doc.fields().get(1).dialect()).isEqualTo(DescriptionDialect.HTML);
+    }
+
+    /** Ein Epic ist keine User Story - auch mit vorhandenem Schluessel. */
+    @Test
+    void technicalEpicOffersOnlyTheDescription() {
+        TicketDocument doc = service.read(Category.TECHNICAL, "349");
+
+        assertThat(doc.fields()).extracting(TicketField::field)
+                .containsExactly(EditableField.DESCRIPTION);
+    }
+
+    /**
+     * Dieselbe Zusage wie fuer die Beschreibung: geschrieben wird genau EIN
+     * Feld, der Rest der Datei bleibt unangetastet.
+     */
+    @Test
+    void writesAcceptanceCriteriaWithoutTouchingTheDescription() throws IOException {
+        TicketDocument before = service.read(Category.TECHNICAL, "350");
+
+        TicketSaveResult result = service.writeField(
+                Category.TECHNICAL, "350", EditableField.ACCEPTANCE_CRITERIA,
+                "<div><ul><li>Neu abgenommen</li></ul></div>",
+                before.revision(), DescriptionDialect.HTML);
+
+        assertThat(result.changed()).isTrue();
+        String content = Files.readString(
+                technicalDir.resolve("349_authentication.json"), StandardCharsets.UTF_8);
+        assertThat(content).contains("<div><ul><li>Neu abgenommen</li></ul></div>");
+        assertThat(content).doesNotContain("Konzept liegt vor");
+        // Beschreibung und Nachbarticket unveraendert.
+        assertThat(content).contains("Als Entwickler moechte ich ...");
+        assertThat(content).contains("\"System.Title\": \"Authentication\"");
+    }
+
+    /**
+     * Der Zuschnitt haelt auch am Dienst, nicht nur in der Oberflaeche: ein
+     * vorhandener, aber nicht freigegebener Schluessel wird nicht geschrieben.
+     */
+    @Test
+    void acceptanceCriteriaOfAnEpicIsRejected() {
+        TicketDocument doc = service.read(Category.TECHNICAL, "349");
+
+        assertThatThrownBy(() -> service.writeField(
+                Category.TECHNICAL, "349", EditableField.ACCEPTANCE_CRITERIA, "<div>x</div>",
+                doc.revision(), DescriptionDialect.EMPTY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("nicht zur Bearbeitung");
+    }
+
+    /** In main ist das Feld ueberhaupt nicht vorgesehen. */
+    @Test
+    void acceptanceCriteriaInMainIsRejected() {
+        TicketDocument doc = service.read(Category.MAIN, "2");
+
+        assertThatThrownBy(() -> service.writeField(
+                Category.MAIN, "2", EditableField.ACCEPTANCE_CRITERIA, "x",
+                doc.revision(), DescriptionDialect.EMPTY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("nicht zur Bearbeitung");
     }
 }
