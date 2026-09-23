@@ -1,6 +1,6 @@
 // Mirrors at.anlagenbauaustria.aiapp.views.model.*
 
-export type ViewId = 'cockpit' | 'stakeholder' | 'costs';
+export type ViewId = 'cockpit' | 'stakeholder' | 'costs' | 'fortschritt-556';
 
 export interface ViewInfo {
   id: ViewId;

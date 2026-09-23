@@ -109,7 +109,8 @@ public class ViewsService {
                     log.toString());
         }
 
-        PipelineResult publish = run(log, kind.publishScript());
+        PipelineResult publish = run(log, kind.publishScript(),
+                kind.publishArgs().toArray(String[]::new));
         if (!publish.isSuccess()) {
             return ViewRefreshResult.failure(
                     "Erzeugen der Ansicht fehlgeschlagen (Exit-Code " + publish.exitCode() + ")",

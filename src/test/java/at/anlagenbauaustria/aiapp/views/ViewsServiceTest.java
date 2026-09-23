@@ -53,7 +53,7 @@ class ViewsServiceTest {
         List<ViewInfo> infos = service.list();
 
         assertThat(infos).extracting(ViewInfo::id)
-                .containsExactly("cockpit", "stakeholder", "costs");
+                .containsExactly("cockpit", "stakeholder", "costs", "fortschritt-556");
         ViewInfo stakeholder = infos.stream()
                 .filter(i -> i.id().equals("stakeholder")).findFirst().orElseThrow();
         assertThat(stakeholder.available()).isTrue();
@@ -105,5 +105,33 @@ class ViewsServiceTest {
             assertThat(kind.publishScript()).contains("/json/");
             assertThat(kind.outputPath()).contains("/json/");
         });
+    }
+
+    /**
+     * Eine Fortschritts-Ansicht bedient genau ein Epic: das Skript ist fuer
+     * alle dasselbe, die Epic-Id steckt in den Argumenten, und die
+     * Ausgabedatei traegt sie im Namen. Ohne diese drei Zusagen wuerden sich
+     * zwei Epics gegenseitig ueberschreiben.
+     */
+    @Test
+    void progressViewsCarryTheirEpicIdEverywhere() {
+        assertThat(ViewKind.values())
+                .filteredOn(kind -> kind.id().startsWith("fortschritt-"))
+                .isNotEmpty()
+                .allSatisfy(kind -> {
+                    String epic = kind.id().substring("fortschritt-".length());
+                    assertThat(kind.publishArgs()).containsExactly(epic);
+                    assertThat(kind.outputPath()).endsWith("Fortschritt_" + epic + ".html");
+                    // --attach wuerde nach Azure schreiben; die App tut das nie.
+                    assertThat(kind.publishArgs()).doesNotContain("--attach");
+                });
+    }
+
+    /** Ansichten ohne Argumente bleiben ohne Argumente. */
+    @Test
+    void boardViewsTakeNoArguments() {
+        assertThat(ViewKind.COCKPIT.publishArgs()).isEmpty();
+        assertThat(ViewKind.STAKEHOLDER.publishArgs()).isEmpty();
+        assertThat(ViewKind.COSTS.publishArgs()).isEmpty();
     }
 }
