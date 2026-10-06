@@ -50,8 +50,8 @@ export const BulletTextCell = forwardRef<CellHandle, CellProps>(function BulletT
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Verhindert, dass eine Zeile innerhalb einer einzigen Editier-Interaktion
-  // mehr als eine Ebene relativ zu ihrem Ausgangswert eingerueckt/ausgerueckt
-  // wird - ein zweiter Tab-Druck auf derselben Zeile soll die Zelle
+  // mehr als eine Ebene relativ zu ihrem Ausgangswert eingerueckt wird
+  // (Ausruecken per Shift+Tab ist bis Stufe 0 frei) - ein zweiter Tab-Druck auf derselben Zeile soll die Zelle
   // verlassen statt weiter einzuruecken. startIndentRef merkt sich, auf
   // welcher Zeile der Cursor gerade steht und mit welcher Tiefe diese Zeile
   // begonnen hat; bei Zeilenwechsel wird der Wert neu uebernommen.
@@ -249,7 +249,21 @@ export const BulletTextCell = forwardRef<CellHandle, CellProps>(function BulletT
           const start = trackStartIndent(text, cursor)!;
           const delta = e.shiftKey ? -1 : 1;
 
-          if ((delta > 0 && indent >= start.indent + 1) || (delta < 0 && (indent <= start.indent - 1 || indent === 0))) {
+          // Shift+Tab rueckt immer bis Stufe 0 aus, egal mit welcher Tiefe die
+          // Zeile begonnen hat - erst Shift+Tab auf Stufe 0 verlaesst die
+          // Zelle. Eine Begrenzung relativ zu start.indent (wie bei Tab)
+          // haette eine bereits tief gespeicherte Zeile (z.B. Stufe 2) nie
+          // mehr auf die aeusserste Ebene zurueckkommen lassen. Kein Reset:
+          // auf Stufe 0 hat der Nutzer bewusst Schritt fuer Schritt
+          // ausgerueckt, das Ergebnis bleibt.
+          if (delta < 0 && indent === 0) {
+            const raw = fromDisplayText(text);
+            onCommit(raw === '' ? null : raw);
+            onMoveTab(-1);
+            return;
+          }
+
+          if (delta > 0 && indent >= start.indent + 1) {
             // Die Zelle wird jetzt verlassen - die Einrueckung, die der
             // erste Tab-Druck auf dieser Zeile vorgenommen hat, war nur ein
             // "Versuch einer zweiten Ebene" und soll nicht bestehen bleiben.
@@ -262,7 +276,7 @@ export const BulletTextCell = forwardRef<CellHandle, CellProps>(function BulletT
             lines[lineIndex] = displayPrefix(start.indent) + lineText;
             const raw = fromDisplayText(lines.join('\n'));
             onCommit(raw === '' ? null : raw);
-            onMoveTab(delta > 0 ? 1 : -1);
+            onMoveTab(1);
             return;
           }
 
