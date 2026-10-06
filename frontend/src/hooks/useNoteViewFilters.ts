@@ -27,6 +27,14 @@ import {
  */
 export const EMPTY_VALUE = '‹leer›';
 
+/**
+ * Grobe Trennung Arbeit/Studium ueber das Projekt der Zeile. "Arbeit" ist
+ * alles, was NICHT Studium ist - auch Zeilen ohne Projekt, weil die im
+ * Arbeitsalltag die Regel sind und sonst unbemerkt verschwinden wuerden.
+ */
+export type NoteBereich = 'alle' | 'arbeit' | 'studium';
+const STUDIUM_PROJEKT = 'Studium';
+
 export interface NoteFilterState {
   /** null = Standardsortierung (created absteigend). */
   sort: { columnId: string; direction: SortDirection } | null;
@@ -40,6 +48,8 @@ export interface NoteFilterState {
   /** Projekt und Meeting sind keine Grid-Spalten, daher getrennt. */
   projekt: Set<string>;
   meeting: Set<string>;
+  /** Schalter Alle/Arbeit/Studium, wirkt per UND mit dem Projekt-Filter. */
+  bereich: NoteBereich;
   /**
    * Von einer Spaltenaktion erzwungene Typ-Einschraenkung, plus der
    * Ausloeser fuer die sichtbare Begruendung. Getrennt von
@@ -55,6 +65,7 @@ const EMPTY_STATE: NoteFilterState = {
   columnValues: {},
   projekt: new Set(),
   meeting: new Set(),
+  bereich: 'alle',
   typScope: null,
 };
 
@@ -84,6 +95,7 @@ export interface UseNoteViewFilters {
   setColumnValues: (columnId: string, values: Set<string>) => void;
   setProjektValues: (values: Set<string>) => void;
   setMeetingValues: (values: Set<string>) => void;
+  setBereich: (bereich: NoteBereich) => void;
   clearTypScope: () => void;
   clearAll: () => void;
   /**
@@ -202,6 +214,11 @@ export function useNoteViewFilters(
     setState((prev) => ({ ...prev, meeting: values }));
   }, []);
 
+  const setBereich = useCallback((bereich: NoteBereich) => {
+    clearGrace();
+    setState((prev) => ({ ...prev, bereich }));
+  }, []);
+
   const clearTypScope = useCallback(() => {
     clearGrace();
     // Loescht NUR die Einschraenkung, nicht die Sortierung: nach dem
@@ -282,6 +299,10 @@ export function useNoteViewFilters(
         const value = row.cells[columnId];
         if (!selected.has(value ? value : EMPTY_VALUE)) return false;
       }
+      if (state.bereich !== 'alle') {
+        const isStudium = row.cells.projekt === STUDIUM_PROJEKT;
+        if (isStudium !== (state.bereich === 'studium')) return false;
+      }
       for (const [columnId, selected] of [
         ['projekt', state.projekt],
         ['meeting', state.meeting],
@@ -292,7 +313,7 @@ export function useNoteViewFilters(
       }
       return true;
     },
-    [definition, effectiveTyps, state.columnValues, state.projekt, state.meeting],
+    [definition, effectiveTyps, state.columnValues, state.projekt, state.meeting, state.bereich],
   );
 
   /**
@@ -333,6 +354,7 @@ export function useNoteViewFilters(
     || state.typScope !== null
     || state.projekt.size > 0
     || state.meeting.size > 0
+    || state.bereich !== 'alle'
     || Object.values(state.columnValues).some((s) => s.size > 0);
 
   return {
@@ -346,6 +368,7 @@ export function useNoteViewFilters(
     setColumnValues,
     setProjektValues,
     setMeetingValues,
+    setBereich,
     clearTypScope,
     clearAll,
     keepVisible,

@@ -1,7 +1,13 @@
 import type { ColumnDefinition, TableDefinition } from '../api/noteTypes';
-import type { UseNoteViewFilters } from '../hooks/useNoteViewFilters';
+import type { NoteBereich, UseNoteViewFilters } from '../hooks/useNoteViewFilters';
 import { isTypExclusive, unionColumns } from '../utils/noteSort';
 import { ColumnFilterMenu } from './ColumnFilterMenu';
+
+const BEREICHE: { id: NoteBereich; label: string }[] = [
+  { id: 'alle', label: 'Alle' },
+  { id: 'arbeit', label: 'Arbeit' },
+  { id: 'studium', label: 'Studium' },
+];
 
 interface NoteFilterBarProps {
   definition: TableDefinition;
@@ -89,6 +95,19 @@ export function NoteFilterBar({
 
       <div className="note-filter-row">
         <span className="note-filter-group-label">Filtern</span>
+        <div className="note-bereich-toggle" role="group" aria-label="Bereich">
+          {BEREICHE.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              className={`note-sort-button${filters.state.bereich === id ? ' active' : ''}`}
+              aria-pressed={filters.state.bereich === id}
+              onClick={() => filters.setBereich(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         {filterable.map((column) => (
           <ColumnFilterMenu
             key={column.id}

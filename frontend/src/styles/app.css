@@ -1169,6 +1169,32 @@ body {
     background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
+/* Alle | Arbeit | Studium als zusammenhaengende Segmentgruppe. */
+.note-bereich-toggle {
+    display: inline-flex;
+}
+
+.note-bereich-toggle .note-sort-button {
+    border-radius: 0;
+}
+
+.note-bereich-toggle .note-sort-button + .note-sort-button {
+    margin-left: -1px;
+}
+
+.note-bereich-toggle .note-sort-button:first-child {
+    border-radius: 0.25rem 0 0 0.25rem;
+}
+
+.note-bereich-toggle .note-sort-button:last-child {
+    border-radius: 0 0.25rem 0.25rem 0;
+}
+
+.note-bereich-toggle .note-sort-button.active,
+.note-bereich-toggle .note-sort-button:hover {
+    position: relative;
+}
+
 .note-filter-count {
     font-size: 0.7rem;
     color: var(--muted);
