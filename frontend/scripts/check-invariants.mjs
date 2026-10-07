@@ -27,6 +27,7 @@ import {
 } from '../src/utils/markdownOffsets.ts';
 import { Schema } from 'prosemirror-model';
 import { projectDoc, toDocPosition } from '../src/components/tickets/textProjection.ts';
+import { diffProjections } from '../src/components/tickets/textDiff.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Ueber CHECK_DIR laesst sich stattdessen ein echtes Vault-Verzeichnis
@@ -377,6 +378,9 @@ function checkTextProjection() {
       doc: { content: 'block+' },
       paragraph: { group: 'block', content: 'inline*', toDOM: () => ['p', 0] },
       heading: { group: 'block', content: 'inline*', toDOM: () => ['h1', 0] },
+      bullet_list: { group: 'block', content: 'list_item+', toDOM: () => ['ul', 0] },
+      list_item: { content: 'paragraph+', toDOM: () => ['li', 0] },
+      hard_break: { group: 'inline', inline: true, toDOM: () => ['br'] },
       text: { group: 'inline' },
     },
     marks: {
@@ -388,8 +392,13 @@ function checkTextProjection() {
   const h = (...children) => schema.node('heading', null, children);
   const t = (s) => schema.text(s);
   const strong = (s) => schema.text(s, [schema.marks.strong.create()]);
+  const ul = (...items) =>
+    schema.node('bullet_list', null, items.map((i) => schema.node('list_item', null, [i])));
+  const br = () => schema.node('hard_break');
 
   const documents = {
+    'Liste mit zwei Punkten': schema.node('doc', null, [p(t('vor')), ul(p(t('Erster')), p(t('Zweiter'))), p(t('nach'))]),
+    'Zeilenumbruch im Absatz': schema.node('doc', null, [p(t('links'), br(), t('rechts'))]),
     'ein Absatz': schema.node('doc', null, [p(t('Hallo Welt'))]),
     'zwei Absaetze': schema.node('doc', null, [p(t('Erster')), p(t('Zweiter'))]),
     'mit Formatierung': schema.node('doc', null, [p(t('vor '), strong('fett'), t(' nach'))]),
@@ -433,9 +442,18 @@ function checkTextProjection() {
     }
 
     // 3. Der projizierte Text muss dem textContent entsprechen - sonst
-    //    verglichen wir etwas anderes, als im Editor steht.
+    //    verglichen wir etwas anderes, als im Editor steht. Je Textblock
+    //    eine Zeile; Inline-Knoten ohne Text (Zeilenumbruch) als \n.
     const expectedText = [];
-    doc.forEach((block) => expectedText.push(block.textContent));
+    doc.descendants((node) => {
+      if (!node.isTextblock) return true;
+      let line = '';
+      node.forEach((child) => {
+        line += child.isText ? child.text : '\n';
+      });
+      expectedText.push(line);
+      return false;
+    });
     check(
       projection.text === expectedText.join('\n') + '\n',
       `[P] ${name}: projizierter Text weicht ab`,
@@ -472,6 +490,113 @@ function checkTextProjection() {
   const empty = projectDoc(schema.node('doc', null, [p()]));
   check(toDocPosition(empty, 0) === 0, '[P] leeres Dokument: Position 0 erwartet');
   check(toDocPosition(empty, 5) === 0, '[P] leeres Dokument: Position hinter dem Ende');
+
+  // 7. Der Vergleich selbst (textDiff.ts). Jeder Fall prueft, welcher Text
+  //    gruen hinterlegt wuerde und wo Loeschstriche saessen.
+  const doc = (...blocks) => schema.node('doc', null, blocks);
+  const run = (before, after) => {
+    const current = projectDoc(after);
+    const { added, removed } = diffProjections(projectDoc(before), current);
+    return {
+      added: added.map((r) => current.text.slice(r.from, r.to)),
+      removedAt: removed.map((r) => current.text.slice(r.at, r.at + 4)),
+    };
+  };
+  const diffCase = (name, before, after, expected) => {
+    const actual = JSON.stringify(run(before, after));
+    check(actual === JSON.stringify(expected), `[D] ${name}`, actual);
+  };
+
+  // Das Fehlbild aus Ticket 569: ein unveraenderter Satz hinter einem
+  // umgeschriebenen Absatz bekam einzelne Woerter gruen, weil die
+  // Leerzeichen beider Absaetze gegeneinander ausgerichtet wurden.
+  diffCase(
+    'unveraenderter Absatz hinter umgeschriebenem bleibt unmarkiert',
+    doc(p(t('Ist-Stand alt mit ganz anderem Text und vielen Woertern')), p(t('White Collar buchen auf Projekt und Taetigkeit'))),
+    doc(p(t('Voellig neu formuliert ohne jede Gemeinsamkeit hier')), p(t('White Collar buchen auf Projekt und Taetigkeit'))),
+    {
+      added: ['Voellig neu formuliert ohne jede Gemeinsamkeit hier'],
+      removedAt: ['Voel'],
+    },
+  );
+  diffCase('nur Leerraum geaendert', doc(p(t('eins  zwei '))), doc(p(t('eins zwei'))), { added: [], removedAt: [] });
+  diffCase(
+    'Unicode-Form egal',
+    doc(p(t('Tätigkeit'))),
+    doc(p(t('Tätigkeit'))),
+    { added: [], removedAt: [] },
+  );
+  diffCase('ein Wort ersetzt', doc(p(t('eins zwei drei'))), doc(p(t('eins vier drei'))), {
+    added: ['vier'],
+    removedAt: ['vier'],
+  });
+  diffCase('mehrere neue Woerter als ein Bereich', doc(p(t('eins drei'))), doc(p(t('eins neu und frisch drei'))), {
+    added: ['neu und frisch'],
+    removedAt: [],
+  });
+  diffCase('Absatz entfernt', doc(p(t('A')), p(t('B')), p(t('C'))), doc(p(t('A')), p(t('C'))), {
+    added: [],
+    removedAt: ['C\n'],
+  });
+  diffCase('Wort am Ende entfernt', doc(p(t('eins zwei'))), doc(p(t('eins'))), {
+    added: [],
+    removedAt: ['\n'],
+  });
+  diffCase(
+    'neue Woerter ueber zwei Listenpunkte getrennt markiert',
+    doc(p(t('vor'))),
+    doc(p(t('vor')), ul(p(t('Erster Punkt')), p(t('Zweiter')))),
+    { added: ['Erster Punkt', 'Zweiter'], removedAt: [] },
+  );
+
+  // Verschoben und geaendert (Ticket 569): der Punkt wanderte hinter einen
+  // unveraenderten Absatz, und aus "[ ]" wurde "[x]". Gruen darf nur das
+  // "[x]" sein, und an der alten Stelle steht kein Loeschstrich.
+  const regel = (box) => p(t(`Wird die Regel verletzt, wird die Buchung abgelehnt. ${box} laut-code - [ ] umgesetzt`));
+  const anker = (n) => p(t(`Unveraenderter Absatz Nummer ${n} bleibt stehen`));
+  diffCase(
+    'verschoben ueber einen Anker und geaendert',
+    doc(regel('[ ]'), anker(1)),
+    doc(anker(1), regel('[x]')),
+    { added: ['[x]'], removedAt: ['[x] '] },
+  );
+  diffCase(
+    'verschoben ueber zwei Anker',
+    doc(regel('[ ]'), anker(1), anker(2)),
+    doc(anker(1), anker(2), regel('[x]')),
+    { added: ['[x]'], removedAt: ['[x] '] },
+  );
+  // Der echte Fall aus Ticket 569: der Absatz dazwischen war im alten Stand
+  // mit "&gt;" geschrieben (sichtbares ">"), ist also selbst geaendert und
+  // kein Anker. Alles liegt in EINER Aenderung, mit gekreuzter Reihenfolge.
+  const entscheidung = (prefix) =>
+    p(t(`${prefix}Entscheidung offen: Genuegt die Minutenaufteilung oder wird die Uhrzeit-Allokation gebraucht`));
+  diffCase(
+    'gekreuzte Reihenfolge in derselben Aenderung',
+    doc(regel('[ ]'), entscheidung('> ')),
+    doc(entscheidung(''), regel('[x]')),
+    { added: ['[x]'], removedAt: ['Ents', '[x] '] },
+  );
+  // Zu weit: dann gilt der Punkt als neu, und die alte Stelle als geloescht.
+  diffCase(
+    'verschoben ueber drei Anker gilt als neu',
+    doc(regel('[ ]'), anker(1), anker(2), anker(3)),
+    doc(anker(1), anker(2), anker(3), regel('[x]')),
+    {
+      added: ['Wird die Regel verletzt, wird die Buchung abgelehnt. [x] laut-code - [ ] umgesetzt'],
+      removedAt: ['Unve'],
+    },
+  );
+  // Nur der gemeinsame Anhang reicht nicht fuer eine Zuordnung.
+  diffCase(
+    'aehnlicher Anhang allein ist keine Verschiebung',
+    doc(p(t('Kurzer alter Punkt [ ] laut-code - [ ] umgesetzt')), anker(1)),
+    doc(anker(1), p(t('Ganz anderer neuer Satz [ ] laut-code - [ ] umgesetzt'))),
+    {
+      added: ['Ganz anderer neuer Satz [ ] laut-code - [ ] umgesetzt'],
+      removedAt: ['Unve'],
+    },
+  );
 }
 
 const files = readdirSync(fixturesDir).filter((f) => f.endsWith('.md'));

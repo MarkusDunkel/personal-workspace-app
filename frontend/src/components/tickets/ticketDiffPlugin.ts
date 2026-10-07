@@ -4,7 +4,7 @@ import { Plugin, PluginKey } from '@milkdown/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/prose/view';
 import type { Node as ProseNode } from '@milkdown/prose/model';
 import type { EditorState } from '@milkdown/prose/state';
-import { diffWordsWithSpace } from 'diff';
+import { diffProjections } from './textDiff';
 import { blocksTouching, projectDoc, toDocPosition } from './textProjection';
 import type { TextProjection } from './textProjection';
 
@@ -87,12 +87,12 @@ function build(
     return DecorationSet.empty;
   }
 
-  let baselineText: string;
+  let baseline: TextProjection;
   try {
     const parser = ctx.get(parserCtx);
     const baselineDoc = parser(baselineMarkdown) as ProseNode | null;
     if (!baselineDoc) return DecorationSet.empty;
-    baselineText = projectDoc(baselineDoc).text;
+    baseline = projectDoc(baselineDoc);
   } catch {
     // Laesst sich der Vergleichsstand nicht lesen, gibt es eben keine
     // Markierung - der Editor bleibt davon unberuehrt.
@@ -101,75 +101,43 @@ function build(
 
   // Schnellweg fuer den Normalfall: die allermeisten Tickets sind
   // unveraendert. Gemessen am Bestand betrifft das 443 von 447.
-  if (baselineText === current.text) return DecorationSet.empty;
+  if (baseline.text === current.text) return DecorationSet.empty;
 
-  return decorationsFor(baselineText, current, doc);
+  return decorationsFor(baseline, current, doc);
 }
 
 function decorationsFor(
-  baselineText: string,
+  baseline: TextProjection,
   current: TextProjection,
   doc: ProseNode,
 ): DecorationSet {
-  // diffWordsWithSpace, NICHT diffWords: letzteres normalisiert Leerraum und
-  // zerstoert damit die Offset-Rechnung, auf der die Rueckabbildung beruht.
+  // Erst blockweise, dann wortweise ohne Leerraum - siehe textDiff.ts.
   // Wortweise statt zeichenweise, weil ein Zeichenvergleich aus "Zeit" ->
   // "Zeiten" eine Markierung nur auf "en" machte - mitten im Wort, und das
   // liest sich als Rauschen.
-  const parts = diffWordsWithSpace(baselineText, current.text);
+  const { added, removed } = diffProjections(baseline, current);
 
   const decorations: Decoration[] = [];
   const addedBlocks = new Set<number>();
   const removedBlocks = new Set<number>();
 
-  // Laeuft ueber den NEUEN Text; nur dessen Offsets lassen sich auf
-  // Dokumentpositionen abbilden. Entfernte Stuecke haben im neuen Text keine
+  // Alle Offsets beziehen sich auf den NEUEN Text; nur dessen Offsets lassen
+  // sich auf Dokumentpositionen abbilden. Entfernte Stuecke haben dort keine
   // Ausdehnung - sie markieren nur die Stelle, an der etwas fehlt.
-  let offset = 0;
-  let pendingRemoval = 0;
-
-  for (const part of parts) {
-    if (part.removed) {
-      // Kann mehrfach hintereinander kommen, wenn mehrere Stuecke an
-      // derselben Stelle wegfielen - dann zaehlt die Summe.
-      pendingRemoval += part.value.length;
-      continue;
+  for (const { from: start, to: end } of added) {
+    const from = toDocPosition(current, start);
+    const to = toDocPosition(current, end);
+    if (to > from) {
+      decorations.push(Decoration.inline(from, to, { class: 'ticket-diff-added' }));
     }
-
-    if (pendingRemoval > 0) {
-      const pos = toDocPosition(current, offset);
-      decorations.push(removalMark(pos, pendingRemoval));
-      for (const block of blocksTouching(current, offset, offset)) {
-        removedBlocks.add(block.pmFrom);
-      }
-      pendingRemoval = 0;
+    for (const block of blocksTouching(current, start, end)) {
+      addedBlocks.add(block.pmFrom);
     }
-
-    const start = offset;
-    const end = offset + part.value.length;
-
-    if (part.added) {
-      const from = toDocPosition(current, start);
-      const to = toDocPosition(current, end);
-      // Leere Bereiche entstehen, wenn ausschliesslich Blocktrenner
-      // hinzukamen - dafuer gibt es keine Textstelle zum Hinterlegen.
-      if (to > from) {
-        decorations.push(Decoration.inline(from, to, { class: 'ticket-diff-added' }));
-      }
-      for (const block of blocksTouching(current, start, end)) {
-        addedBlocks.add(block.pmFrom);
-      }
-    }
-
-    offset = end;
   }
 
-  // Eine Loeschung ganz am Ende hat kein nachfolgendes Stueck mehr, das sie
-  // ausloest - deshalb hier noch einmal.
-  if (pendingRemoval > 0) {
-    const pos = toDocPosition(current, offset);
-    decorations.push(removalMark(pos, pendingRemoval));
-    for (const block of blocksTouching(current, offset, offset)) {
+  for (const { at, length } of removed) {
+    decorations.push(removalMark(toDocPosition(current, at), length));
+    for (const block of blocksTouching(current, at, at)) {
       removedBlocks.add(block.pmFrom);
     }
   }

@@ -22,13 +22,24 @@ export interface BlockRange {
   pmTo: number;
 }
 
+/**
+ * Ein Textblock (Absatz, Ueberschrift, Listenpunkt, Tabellenzelle) im
+ * projizierten Text - die Einheit, an der der Vergleich verankert wird.
+ */
+export interface TextUnit {
+  flatStart: number;
+  flatEnd: number;
+}
+
 export interface TextProjection {
-  /** Der reine Text des Dokuments, Bloecke durch \n getrennt. */
+  /** Der reine Text des Dokuments, Textbloecke durch \n getrennt. */
   text: string;
   /** Nach flatStart sortiert - Voraussetzung fuer die binaere Suche. */
   segments: TextSegment[];
   /** Die Bloecke der obersten Ebene, fuer die Randmarkierung. */
   blocks: BlockRange[];
+  /** Alle Textbloecke in Dokumentreihenfolge, auch verschachtelte. */
+  units: TextUnit[];
 }
 
 /**
@@ -58,44 +69,71 @@ export interface TextProjection {
 export function projectDoc(doc: ProseNode): TextProjection {
   const segments: TextSegment[] = [];
   const blocks: BlockRange[] = [];
+  const units: TextUnit[] = [];
   let text = '';
 
-  doc.forEach((block, offset) => {
-    const blockFlatStart = text.length;
-    // +1: die Position INNERHALB des Blockknotens, nicht die des Knotens
-    // selbst. doc.forEach liefert den Offset des Knotens; sein Inhalt
-    // beginnt eine Position weiter.
-    const blockPmFrom = offset;
-    const blockPmTo = offset + block.nodeSize;
-
-    block.descendants((node, pos) => {
-      if (!node.isText || !node.text) return true;
-      // pos ist relativ zum Blockknoten; +1 ueberspringt dessen oeffnende
-      // Marke, damit die Position im Gesamtdokument stimmt.
-      const pmFrom = blockPmFrom + 1 + pos;
-      segments.push({
-        flatStart: text.length,
-        flatEnd: text.length + node.text.length,
-        pmFrom,
-      });
-      text += node.text;
-      return true;
+  /**
+   * Haengt einen Textblock an. contentStart ist die Dokumentposition seines
+   * ersten Kindes, also die Position des Knotens + 1 (oeffnende Marke).
+   */
+  const addTextblock = (node: ProseNode, contentStart: number) => {
+    const flatStart = text.length;
+    node.forEach((child, childOffset) => {
+      if (child.isText && child.text) {
+        segments.push({
+          flatStart: text.length,
+          flatEnd: text.length + child.text.length,
+          pmFrom: contentStart + childOffset,
+        });
+        text += child.text;
+      } else if (child.isInline) {
+        // Zeilenumbruch, Inline-HTML, Bild: kein Text, aber eine Wortgrenze.
+        // Ohne den Trenner verschmoelzen die Woerter links und rechts davon
+        // zu einem einzigen Vergleichswort.
+        text += '\n';
+      }
     });
-
-    blocks.push({
-      flatStart: blockFlatStart,
-      flatEnd: text.length,
-      pmFrom: blockPmFrom,
-      pmTo: blockPmTo,
-    });
-
+    units.push({ flatStart, flatEnd: text.length });
     // Blocktrenner. Er gehoert zu KEINEM Segment - eine Position darin hat
     // also keine Entsprechung im Dokument, was richtig ist: zwischen zwei
     // Absaetzen steht kein Zeichen, das man markieren koennte.
     text += '\n';
+  };
+
+  doc.forEach((block, offset) => {
+    const blockFlatStart = text.length;
+    const unitsBefore = units.length;
+
+    // +1: die Position INNERHALB des Blockknotens, nicht die des Knotens
+    // selbst. doc.forEach liefert den Offset des Knotens; sein Inhalt
+    // beginnt eine Position weiter.
+    if (block.isTextblock) {
+      addTextblock(block, offset + 1);
+    } else {
+      // Listen, Zitate, Tabellen: jeder enthaltene Textblock wird eine eigene
+      // Einheit. Sonst waere eine ganze Liste EIN Vergleichsblock, und die
+      // Punkte liefen ohne Trenner ineinander ("ErsterZweiter").
+      block.descendants((node, pos) => {
+        if (!node.isTextblock) return true;
+        // pos ist relativ zum Inhalt von block: +1 fuer dessen oeffnende
+        // Marke, +1 fuer die des Textblocks selbst.
+        addTextblock(node, offset + 1 + pos + 1);
+        return false;
+      });
+    }
+
+    blocks.push({
+      flatStart: blockFlatStart,
+      // Ende des letzten Textblocks, OHNE den folgenden Trenner - sonst
+      // beruehrte eine Loeschstelle am Anfang des naechsten Blocks auch
+      // diesen hier.
+      flatEnd: units.length > unitsBefore ? units[units.length - 1].flatEnd : blockFlatStart,
+      pmFrom: offset,
+      pmTo: offset + block.nodeSize,
+    });
   });
 
-  return { text, segments, blocks };
+  return { text, segments, blocks, units };
 }
 
 /**
