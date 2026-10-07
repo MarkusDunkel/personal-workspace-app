@@ -30,8 +30,8 @@ import type { TextProjection, TextUnit } from './textProjection';
 export interface DiffResult {
   /** Hinzugekommene Bereiche [from, to) im aktuellen Text. */
   added: Array<{ from: number; to: number }>;
-  /** Loeschstellen im aktuellen Text, mit der Zeichenzahl des Entfernten. */
-  removed: Array<{ at: number; length: number }>;
+  /** Loeschstellen im aktuellen Text, mit dem entfernten Text und seiner Laenge. */
+  removed: Array<{ at: number; length: number; text: string }>;
 }
 
 interface Word {
@@ -265,20 +265,25 @@ function diffWords(oldWords: Word[], newWords: Word[], fallback: number, result:
   );
 
   let ni = 0; // naechstes Wort im aktuellen Stand
-  let pendingRemoval = 0;
+  // Die entfernten Woerter an der aktuellen Stelle. Kann aus mehreren
+  // aufeinanderfolgenden Teilen stammen - dann zaehlt alles zusammen.
+  let pendingRemoval: string[] = [];
+  const removal = (at: number) => {
+    // Mit je einem Leerzeichen zwischen den Woertern - der Originalleerraum
+    // ist beim Zerlegen verloren, fuer die Anzeige reicht das.
+    const text = pendingRemoval.join(' ');
+    result.removed.push({ at, length: text.length, text });
+    pendingRemoval = [];
+  };
 
   for (const part of parts) {
     const count = part.count ?? part.value.length;
     if (part.removed) {
-      // Zeichenzahl wie im Text, mit je einem Leerzeichen zwischen den Woertern.
-      pendingRemoval += part.value.join(' ').length;
+      pendingRemoval.push(...part.value);
       continue;
     }
 
-    if (pendingRemoval > 0) {
-      result.removed.push({ at: newWords[ni].start, length: pendingRemoval });
-      pendingRemoval = 0;
-    }
+    if (pendingRemoval.length > 0) removal(newWords[ni].start);
 
     if (part.added) {
       // Zusammenhaengende Woerter als EIN Bereich - so ist auch das
@@ -301,10 +306,5 @@ function diffWords(oldWords: Word[], newWords: Word[], fallback: number, result:
     ni += count;
   }
 
-  if (pendingRemoval > 0) {
-    result.removed.push({
-      at: ni > 0 ? newWords[ni - 1].end : fallback,
-      length: pendingRemoval,
-    });
-  }
+  if (pendingRemoval.length > 0) removal(ni > 0 ? newWords[ni - 1].end : fallback);
 }

@@ -20,13 +20,20 @@ import type { TextProjection } from './textProjection';
  * weil der gespeicherte Wert byte-genau in eine versionierte Datei geht, die
  * anschliessend in einen 3-Wege-Merge laeuft.
  *
- * Der Loeschmarker zeigt den alten Text ABSICHTLICH nicht an, sondern nur
- * einen Strich (Zeichenzahl im Tooltip). Das war eine bewusste Entscheidung
- * und spart den gesamten Problemkreis eingeblendeten Textes: keine Kuerzung
- * bei grossen Loeschungen - im Bestand gibt es ein Feld mit 20.202 Zeichen -,
- * keine Sonderfaelle bei Pfeiltasten und Ruecktaste, nichts Fremdes in der
- * Zwischenablage.
+ * Der Loeschmarker zeigt den alten Text ABSICHTLICH nicht im Fliesstext an,
+ * sondern nur einen Strich. Das war eine bewusste Entscheidung und spart den
+ * gesamten Problemkreis eingeblendeten Textes: keine Kuerzung bei grossen
+ * Loeschungen - im Bestand gibt es ein Feld mit 20.202 Zeichen -, keine
+ * Sonderfaelle bei Pfeiltasten und Ruecktaste, nichts Fremdes in der
+ * Zwischenablage. Der Tooltip zeigt kurze Loeschungen im Wortlaut, laengere
+ * nur als Zeichenzahl (siehe removalTitle).
  */
+
+/**
+ * Bis zu dieser Laenge steht der entfernte Text selbst im Tooltip. Darueber
+ * wird ein Tooltip zur Textwand, und die Zeichenzahl sagt mehr.
+ */
+const REMOVED_TEXT_MAX = 50;
 
 /** Der Vergleichsstand des gerade bearbeiteten Feldes, als Markdown. */
 export const baselineCtx = $ctx<string | null, 'ticketDiffBaseline'>(
@@ -135,8 +142,8 @@ function decorationsFor(
     }
   }
 
-  for (const { at, length } of removed) {
-    decorations.push(removalMark(toDocPosition(current, at), length));
+  for (const { at, text } of removed) {
+    decorations.push(removalMark(toDocPosition(current, at), text));
     for (const block of blocksTouching(current, at, at)) {
       removedBlocks.add(block.pmFrom);
     }
@@ -165,7 +172,8 @@ function decorationsFor(
  * Pseudoelement. Dadurch verschiebt der Marker nichts - Text bricht mit und
  * ohne ihn identisch um.
  */
-function removalMark(pos: number, removedLength: number): Decoration {
+function removalMark(pos: number, removedText: string): Decoration {
+  const title = removalTitle(removedText);
   return Decoration.widget(
     pos,
     () => {
@@ -173,7 +181,7 @@ function removalMark(pos: number, removedLength: number): Decoration {
       el.className = 'ticket-diff-removed-mark';
       el.setAttribute('contenteditable', 'false');
       el.setAttribute('aria-hidden', 'true');
-      el.title = `${removedLength} Zeichen entfernt`;
+      el.title = title;
       return el;
     },
     {
@@ -181,12 +189,20 @@ function removalMark(pos: number, removedLength: number): Decoration {
       marks: [],
       // Ohne key vergleicht ProseMirror Widgets ueber die DOM-Identitaet.
       // Da die Dekorationen bei jedem Tastendruck neu gebaut werden, wuerde
-      // sonst jedes Mal jeder Marker neu gezeichnet.
-      key: `del-${pos}-${removedLength}`,
+      // sonst jedes Mal jeder Marker neu gezeichnet. Der Tooltip gehoert in
+      // den key: sonst bliebe bei gleicher Stelle der alte Wortlaut stehen.
+      key: `del-${pos}-${title}`,
       // Der Marker steht zwischen zwei Zeichen und soll die Auswahl nicht
       // an sich ziehen.
       ignoreSelection: true,
       stopEvent: () => true,
     },
   );
+}
+
+/** Kurze Loeschungen im Wortlaut, laengere nur als Zeichenzahl. */
+function removalTitle(removedText: string): string {
+  return removedText.length < REMOVED_TEXT_MAX
+    ? `Entfernt: „${removedText}“`
+    : `${removedText.length} Zeichen entfernt`;
 }

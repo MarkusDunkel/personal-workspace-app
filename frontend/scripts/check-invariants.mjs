@@ -549,6 +549,16 @@ function checkTextProjection() {
     { added: ['Erster Punkt', 'Zweiter'], removedAt: [] },
   );
 
+  // Der entfernte Wortlaut fuer den Tooltip - mehrere Woerter mit Leerzeichen.
+  {
+    const { removed } = diffProjections(
+      projectDoc(doc(p(t('eins zwei  drei vier')))),
+      projectDoc(doc(p(t('eins vier')))),
+    );
+    const actual = JSON.stringify(removed.map((r) => [r.text, r.length]));
+    check(actual === JSON.stringify([['zwei drei', 9]]), '[D] entfernter Text fuer den Tooltip', actual);
+  }
+
   // Verschoben und geaendert (Ticket 569): der Punkt wanderte hinter einen
   // unveraenderten Absatz, und aus "[ ]" wurde "[x]". Gruen darf nur das
   // "[x]" sein, und an der alten Stelle steht kein Loeschstrich.
