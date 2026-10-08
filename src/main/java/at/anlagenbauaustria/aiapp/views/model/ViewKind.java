@@ -45,6 +45,11 @@ public enum ViewKind {
             "pipelines/azure_boards/json/main/run_publish_stakeholder_html.sh",
             "5_output/azure_boards/json/main/stakeholder-html/stakeholder.html"),
 
+    /** Kompakte Stakeholder-Ansicht: Phasenfortschritt am aktuellen Versionsbalken. */
+    STAKEHOLDER_KOMPAKT("stakeholder-kompakt", "Stakeholder kompakt", Category.MAIN,
+            "pipelines/azure_boards/json/main/run_publish_stakeholder_kompakt_html.sh",
+            "5_output/azure_boards/json/main/stakeholder-kompakt-html/stakeholder-kompakt.html"),
+
     COSTS("costs", "Costs", Category.COSTS,
             "pipelines/azure_boards/json/costs/run_publish_costs_html.sh",
             "5_output/azure_boards/json/costs/costs-html/costs.html"),

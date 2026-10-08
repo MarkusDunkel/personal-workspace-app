@@ -53,7 +53,7 @@ class ViewsServiceTest {
         List<ViewInfo> infos = service.list();
 
         assertThat(infos).extracting(ViewInfo::id)
-                .containsExactly("cockpit", "stakeholder", "costs", "fortschritt-556");
+                .containsExactly("cockpit", "stakeholder", "stakeholder-kompakt", "costs", "fortschritt-556");
         ViewInfo stakeholder = infos.stream()
                 .filter(i -> i.id().equals("stakeholder")).findFirst().orElseThrow();
         assertThat(stakeholder.available()).isTrue();
