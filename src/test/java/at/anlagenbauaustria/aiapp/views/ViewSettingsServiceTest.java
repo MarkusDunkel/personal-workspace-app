@@ -50,7 +50,7 @@ class ViewSettingsServiceTest {
         assertThat(service.readOrder()).containsExactly("556", "12");
 
         String content = Files.readString(orderFile(), StandardCharsets.UTF_8);
-        assertThat(content).startsWith(ViewSettingsService.HEADER);
+        assertThat(content).startsWith(ViewSettingsService.ORDER_HEADER);
         assertThat(content).contains("556  # Zeiterfassung\n", "12  # Gerätemanagement\n");
     }
 
@@ -84,5 +84,32 @@ class ViewSettingsServiceTest {
         assertThatThrownBy(() -> service.writeOrder(List.of()))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(Files.exists(orderFile())).isFalse();
+    }
+
+    @Test
+    void hiddenSelectionIsSeparateAndMayBeEmpty() throws IOException {
+        assertThat(service.readHidden()).isEmpty();
+
+        service.writeHidden(List.of(
+                new StakeholderOrderEntry("9", "Anlagenbuchhaltung"),
+                new StakeholderOrderEntry("95", "Workpackage Infosystem")));
+        assertThat(service.readHidden()).containsExactly("9", "95");
+        // Die Reihenfolge bleibt davon unberuehrt.
+        assertThat(service.readOrder()).isEmpty();
+
+        Path hiddenFile = aivaultRoot.resolve(ViewSettingsService.HIDDEN_FILE);
+        assertThat(Files.readString(hiddenFile, StandardCharsets.UTF_8))
+                .startsWith(ViewSettingsService.HIDDEN_HEADER)
+                .contains("9  # Anlagenbuchhaltung\n");
+
+        // Leer = alles sichtbar; ist gueltig (anders als bei der Reihenfolge).
+        assertThat(service.writeHidden(List.of())).isEmpty();
+        assertThat(service.readHidden()).isEmpty();
+    }
+
+    @Test
+    void hiddenRejectsInvalidIds() {
+        assertThatThrownBy(() -> service.writeHidden(List.of(new StakeholderOrderEntry("x1", "t"))))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

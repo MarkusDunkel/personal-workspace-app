@@ -127,6 +127,25 @@ public class ViewsController {
     }
 
     /**
+     * Standard-Auswahl (ausgeblendete Eintraege) der beiden
+     * Stakeholder-Ansichten (geteilt). "ids" = ausgeblendete Work-Item-IDs.
+     */
+    @GetMapping("/settings/stakeholder-hidden")
+    public StakeholderOrder stakeholderHidden() {
+        return StakeholderOrder.of(settings.readHidden());
+    }
+
+    @PutMapping("/settings/stakeholder-hidden")
+    public ResponseEntity<?> saveStakeholderHidden(@RequestBody StakeholderOrder body) {
+        try {
+            return ResponseEntity.ok(StakeholderOrder.of(
+                    settings.writeHidden(body == null ? null : body.entries())));
+        } catch (IllegalArgumentException | PathTraversalException e) {
+            return ResponseEntity.badRequest().body(errorBody(e));
+        }
+    }
+
+    /**
      * Spring Boot blendet exception.getMessage() in der Standard-Fehlerantwort
      * aus (server.error.include-message=never per Default) - ohne dieses
      * Ersatzobjekt kaeme beim Nutzer ein nackter 400 ohne Grund an.
