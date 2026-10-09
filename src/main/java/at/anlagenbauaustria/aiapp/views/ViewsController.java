@@ -5,6 +5,7 @@ import at.anlagenbauaustria.aiapp.pipeline.PipelineRunner.PipelineExecutionExcep
 import at.anlagenbauaustria.aiapp.views.model.ViewInfo;
 import at.anlagenbauaustria.aiapp.views.model.ViewKind;
 import at.anlagenbauaustria.aiapp.views.model.ViewRefreshResult;
+import at.anlagenbauaustria.aiapp.views.model.StakeholderOrder;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
@@ -13,6 +14,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -44,9 +47,11 @@ import java.util.List;
 public class ViewsController {
 
     private final ViewsService service;
+    private final ViewSettingsService settings;
 
-    public ViewsController(ViewsService service) {
+    public ViewsController(ViewsService service, ViewSettingsService settings) {
         this.service = service;
+        this.settings = settings;
     }
 
     @GetMapping
@@ -98,6 +103,26 @@ public class ViewsController {
         } catch (PipelineExecutionException e) {
             return ResponseEntity.internalServerError()
                     .body(ViewRefreshResult.failure(e.getMessage(), null));
+        }
+    }
+
+    /**
+     * Manuelle Reihenfolge der beiden Stakeholder-Ansichten (geteilt). Wird
+     * von der Seite im iframe selbst aufgerufen - gleiche Origin wie
+     * "/html/{id}", daher ohne CORS.
+     */
+    @GetMapping("/settings/stakeholder-order")
+    public StakeholderOrder stakeholderOrder() {
+        return StakeholderOrder.of(settings.readOrder());
+    }
+
+    @PutMapping("/settings/stakeholder-order")
+    public ResponseEntity<?> saveStakeholderOrder(@RequestBody StakeholderOrder body) {
+        try {
+            return ResponseEntity.ok(StakeholderOrder.of(
+                    settings.writeOrder(body == null ? null : body.entries())));
+        } catch (IllegalArgumentException | PathTraversalException e) {
+            return ResponseEntity.badRequest().body(errorBody(e));
         }
     }
 
